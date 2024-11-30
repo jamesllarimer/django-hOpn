@@ -7,5 +7,14 @@
 </head>
 <body>
     <p>Home</p>
+    {% if teams %}
+        <ul>
+            {% for team in teams %}
+                <li>{{ team.name }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+            <p>No teams found</p>
+    {% endif %}
 </body>
 </html>
