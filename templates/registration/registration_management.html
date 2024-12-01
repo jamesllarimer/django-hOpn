@@ -3,24 +3,6 @@
 
 {% block content %}
 <div class="container mx-auto px-4 py-8">
-    <!-- Debug Info -->
-    <div class="bg-gray-100 p-4 mb-4">
-        <h3 class="font-bold">Debug Info:</h3>
-        <p>Number of Divisions: {{ organized_data|length }}</p>
-        {% for division, teams_dict in organized_data.items %}
-            <div class="ml-4">
-                <p>Division: {{ division.name }}</p>
-                <p>Number of Teams: {{ teams_dict|length }}</p>
-                {% for team, registrations in teams_dict.items %}
-                    <div class="ml-4">
-                        <p>Team: {{ team.name }}</p>
-                        <p>Registrations: {{ registrations|length }}</p>
-                    </div>
-                {% endfor %}
-            </div>
-        {% endfor %}
-    </div>
-<div class="container mx-auto px-4 py-8">
     <!-- League Filter -->
     <div class="mb-8">
         <form method="get" class="flex items-center space-x-4">
@@ -57,13 +39,67 @@
             <div class="text-gray-600">Teams</div>
         </div>
     </div>
-
+<!-- Free Agents Section -->
+{% for division, registrations in free_agents.items %}
+{% if registrations %}
+    <div class="mb-8">
+        <h2 class="text-2xl font-bold mb-4">Free Agents - {{ division.name }}</h2>
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <table class="min-w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for registration in registrations %}
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.get_full_name }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.email }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                {% if registration.player.is_member %}
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                        Member
+                                    </span>
+                                {% else %}
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                        Non-Member
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                    {% if registration.payment_status == 'paid' %}bg-green-100 text-green-800
+                                    {% elif registration.payment_status == 'pending' %}bg-yellow-100 text-yellow-800
+                                    {% else %}bg-red-100 text-red-800{% endif %}">
+                                    {{ registration.payment_status|title }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <a href="#" onclick="openModal('{{ registration.player.id }}', '{{ registration.league.id }}')" class="text-indigo-600 hover:text-indigo-900">
+                                    Assign Team
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endif %}
+{% endfor %}
 <!-- Teams by Division -->
-{% for division, teams_dict in organized_data.items %}
+{% for division, teams in organized_data.items %}
     <div class="mb-8">
         <h2 class="text-2xl font-bold mb-4">{{ division.name }}</h2>
-        {% if teams_dict %}
-            {% for team, registrations in teams_dict.items %}
+        {% if teams %}
+            {% for team, registrations in teams.items %}
                 <div class="mb-6">
                     <h3 class="text-xl font-semibold mb-2">{{ team.name }}</h3>
                     <div class="bg-white rounded-lg shadow overflow-hidden">
@@ -86,9 +122,13 @@
                                         <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             {% if registration.player.is_member %}
-                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Member</span>
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                    Member
+                                                </span>
                                             {% else %}
-                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Non-Member</span>
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                                    Non-Member
+                                                </span>
                                             {% endif %}
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
@@ -116,7 +156,6 @@
         {% endif %}
     </div>
 {% endfor %}
-</div>
 
 <!-- Team Assignment Modal -->
 <div id="assignTeamModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">

@@ -326,53 +326,42 @@ class RegistrationManagementView(AdminRequiredMixin, ListView):
         organized_data = defaultdict(lambda: defaultdict(list))
         free_agents = defaultdict(list)
         
-        print("\nDetailed Registration Analysis:")
+        # Process registrations
         for registration in self.get_queryset():
-            print(f"\nRegistration #{registration.id}")
-            print(f"Player: {registration.player.get_full_name()}")
-            print(f"League: {registration.league}")
-            print(f"Division: {registration.division}")
-            print(f"Player's Team: {registration.player.team}")
-            print(f"Payment Status: {registration.payment_status}")
-
-            # Validating data completeness
-            if not registration.division:
-                print("WARNING: Registration has no division")
-                continue
-
             if registration.player.team:
-                team = registration.player.team
-                print(f"Team Division: {team.division}")
-                print(f"Team League: {team.league}")
-                
-                # Check if team's division matches registration's division
-                if team.division != registration.division:
-                    print(f"WARNING: Team division ({team.division}) doesn't match registration division ({registration.division})")
-                
-                organized_data[registration.division][team].append(registration)
-                print(f"Added to organized data under division '{registration.division}' and team '{team}'")
+                organized_data[registration.division][registration.player.team].append(registration)
             else:
+                print(f"Adding free agent to division {registration.division.name}")  # Debug print
                 free_agents[registration.division].append(registration)
-                print("Added to free agents")
 
-        # Print organized data structure
-        print("\nOrganized Data Structure:")
-        for division, teams in organized_data.items():
+        # Convert nested defaultdict to regular dict
+        final_data = {}
+        for division, teams_dict in organized_data.items():
+            final_data[division] = dict(teams_dict)
+        
+        # Convert free_agents defaultdict to regular dict
+        final_free_agents = dict(free_agents)
+        
+        # Debug prints
+        print("\n=== Final Data Structure ===")
+        print("\nTeam Registrations:")
+        for division, teams in final_data.items():
             print(f"\nDivision: {division.name}")
             for team, registrations in teams.items():
                 print(f"  Team: {team.name}")
-                print(f"  Players: {', '.join(r.player.get_full_name() for r in registrations)}")
-
-        # Print free agents structure
-        print("\nFree Agents Structure:")
-        for division, registrations in free_agents.items():
-            print(f"\nDivision: {division.name}")
-            print(f"Players: {', '.join(r.player.get_full_name() for r in registrations)}")
-
-        context['organized_data'] = dict(organized_data)
-        context['free_agents'] = dict(free_agents)
+                print(f"  Number of registrations: {len(registrations)}")
+                
+        print("\nFree Agents:")
+        for division, registrations in final_free_agents.items():
+            print(f"Division: {division.name}")
+            print(f"Number of free agents: {len(registrations)}")
+            for reg in registrations:
+                print(f"  - {reg.player.get_full_name()}")
         
-        # Get some statistics
+        context['organized_data'] = final_data
+        context['free_agents'] = final_free_agents
+        
+        # Get statistics
         stats_queryset = self.get_queryset()
         context['stats'] = {
             'total_registrations': stats_queryset.count(),
@@ -383,4 +372,3 @@ class RegistrationManagementView(AdminRequiredMixin, ListView):
         }
         
         return context
-
