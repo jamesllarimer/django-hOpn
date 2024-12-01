@@ -1,6 +1,9 @@
+import random
+import string
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
+from django.urls import reverse
 from django.utils import timezone
 
 class CustomUser(AbstractUser):
@@ -147,6 +150,13 @@ class League(models.Model):
     def __str__(self):
         return f"{self.name} - {self.sport.name}"
 
+def generate_unique_signup_code():
+    """Generate a unique signup code for teams"""
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        if not Team.objects.filter(signup_code=code).exists():
+            return code
+
 class Team(models.Model):
     """
     Represents a team within a league and division
@@ -158,7 +168,17 @@ class Team(models.Model):
                                on_delete=models.PROTECT,
                                related_name='captained_teams')
     created_at = models.DateTimeField(auto_now_add=True)
+    signup_code = models.CharField(max_length=8, unique=True, null=True, blank=True)  # Make it nullable initially
     
+    def get_signup_url(self):
+        """Generate the signup URL for this team"""
+        from django.urls import reverse
+        return reverse('sportsSignUp:team_signup', kwargs={'signup_code': self.signup_code})
+        
+    def save(self, *args, **kwargs):
+        if not self.signup_code:
+            self.signup_code = generate_unique_signup_code()
+        super().save(*args, **kwargs)
     def clean(self):
         if self.division and self.league:
             if self.division.sport != self.league.sport:

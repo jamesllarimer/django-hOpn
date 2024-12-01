@@ -21,7 +21,7 @@ def get_stripe_price_id(league, is_member):
             if metadata.get('is_member', '').lower() == str(is_member).lower():
                 return price.id
                 
-        return None
+        return 'price_1Nj6w4A4CECRU4aHIDEv90eE'
         
     except stripe.error.StripeError as e:
         print(f"Stripe error: {str(e)}")

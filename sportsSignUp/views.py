@@ -4,6 +4,7 @@ from urllib import request
 from django import forms
 from django.conf import settings
 from django.http import HttpResponse
+from django.views.generic.edit import UpdateView
 from django.views.generic import ListView, CreateView, FormView
 from datetime import datetime 
 from django.shortcuts import get_object_or_404, render, redirect
@@ -14,7 +15,7 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic.edit import CreateView
 
 from sportsSignUp.stripe_utils import get_stripe_price_id
-from .forms import CustomUserCreationForm, FreeAgentRegistrationForm
+from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, TeamSignupForm
 from django.contrib import messages
 from django.utils import timezone
 from .models import Sport, Team, Player, Division, League, Registration
@@ -415,3 +416,203 @@ def get_teams_by_division(request, division_id):
         division_id=division_id
     ).values('id', 'name')
     return JsonResponse(list(teams), safe=False)
+
+class TeamManagementView(AdminRequiredMixin, ListView):
+    model = Team
+    template_name = 'teams/team_management.html'  # This tells ListView to use this template
+    context_object_name = 'teams'
+
+    def get_queryset(self):
+        queryset = Team.objects.select_related(
+            'league',
+            'division'
+        ).order_by('league', 'division', 'name')
+        
+        # Apply filters
+        filters = Q()
+        
+        # League filter
+        league_id = self.request.GET.get('league')
+        if league_id:
+            filters &= Q(league_id=league_id)
+            
+        # Division filter
+        division_id = self.request.GET.get('division')
+        if division_id:
+            filters &= Q(division_id=division_id)
+            
+        # Search filter
+        search_query = self.request.GET.get('search', '').strip()
+        if search_query:
+            filters &= Q(name__icontains=search_query)
+            
+        return queryset.filter(filters)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['leagues'] = League.objects.all().order_by('name')
+        context['divisions'] = Division.objects.all().order_by('name')
+        return context
+
+class TeamEditForm(forms.ModelForm):
+    class Meta:
+        model = Team
+        fields = ['name', 'division', 'league']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'w-full border rounded px-3 py-2'}),
+            'division': forms.Select(attrs={'class': 'w-full border rounded px-3 py-2'}),
+            'league': forms.Select(attrs={'class': 'w-full border rounded px-3 py-2'})
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # If instance exists (editing existing team), get its current league
+        if self.instance.pk:
+            self.fields['division'].queryset = Division.objects.filter(
+                league_sessions=self.instance.league
+            )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        division = cleaned_data.get('division')
+        league = cleaned_data.get('league')
+        
+        if division and league:
+            # Verify division belongs to the selected league
+            if league not in division.league_sessions.all():
+                raise forms.ValidationError(
+                    "Selected division is not available in the selected league."
+                )
+        return cleaned_data
+
+class TeamEditView(AdminRequiredMixin, UpdateView):
+    model = Team
+    form_class = TeamEditForm
+    template_name = 'teams/team_edit.html'
+    
+    def get_success_url(self):
+        messages.success(self.request, f"Team '{self.object.name}' was updated successfully.")
+        return reverse('sportsSignUp:team_management')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['title'] = f"Edit Team: {self.object.name}"
+        return context
+
+def team_signup_page(request, signup_code):
+    """Public page for team signups"""
+    team = get_object_or_404(Team, signup_code=signup_code)
+
+    if request.method == 'POST':
+        form = TeamSignupForm(request.POST)
+        if form.is_valid():
+            try:
+                # Get the appropriate price ID
+                price_id = get_stripe_price_id(
+                    league=team.league,
+                    is_member=form.cleaned_data['is_member'],
+                )
+                
+                if not price_id:
+                    messages.error(request, "Unable to determine registration price. Please contact support.")
+                    return redirect('sportsSignUp:team_signup', signup_code=signup_code)
+
+                # Create Stripe checkout session
+                checkout_session = stripe.checkout.Session.create(
+                    payment_method_types=['card'],
+                    line_items=[{
+                        'price': price_id,
+                        'quantity': 1,
+                    }],
+                    mode='payment',
+                    success_url=request.build_absolute_uri(
+                        reverse('sportsSignUp:team_signup_success')
+                    ) + "?session_id={CHECKOUT_SESSION_ID}",
+                    cancel_url=request.build_absolute_uri(
+                        reverse('sportsSignUp:team_signup', kwargs={'signup_code': signup_code})
+                    ),
+                    metadata={
+                        'team_id': team.id,
+                        'player_data': json.dumps({
+                            'first_name': form.cleaned_data['first_name'],
+                            'last_name': form.cleaned_data['last_name'],
+                            'email': form.cleaned_data['email'],
+                            'phone_number': form.cleaned_data['phone_number'],
+                            'parent_name': form.cleaned_data.get('parent_name', ''),
+                            'date_of_birth': str(form.cleaned_data['date_of_birth']),
+                            'membership_number': form.cleaned_data['membership_number'],
+                            'is_member': form.cleaned_data['is_member'],
+                        })
+                    }
+                )
+                return redirect(checkout_session.url)
+                
+            except stripe.error.StripeError as e:
+                messages.error(request, f"Payment error: {str(e)}")
+                return redirect('team_signup', signup_code=signup_code)
+    else:
+        form = TeamSignupForm()
+
+    return render(request, 'teams/team_signup.html', {
+        'team': team,
+        'form': form,
+    })
+
+def team_signup_success(request):
+    """Handle successful team signup after payment"""
+    session_id = request.GET.get('session_id')
+    if not session_id:
+        messages.error(request, 'No session ID provided')
+        return redirect('')
+
+    try:
+        # Retrieve the session and metadata
+        session = stripe.checkout.Session.retrieve(session_id)
+        player_data = json.loads(session.metadata['player_data'])
+        team = get_object_or_404(Team, id=session.metadata['team_id'])
+        
+        # Create the player
+        player = Player.objects.create(
+            first_name=player_data['first_name'],
+            last_name=player_data['last_name'],
+            email=player_data['email'],
+            phone_number=player_data['phone_number'],
+            parent_name=player_data.get('parent_name'),
+            date_of_birth=datetime.strptime(player_data['date_of_birth'], '%Y-%m-%d').date(),
+            membership_number=player_data['membership_number'],
+            is_member=player_data['is_member'],
+            team=team
+        )
+        
+        # Create registration
+        registration = Registration.objects.create(
+            player=player,
+            league=team.league,
+            division=team.division,
+            payment_status='paid',
+            stripe_payment_intent=session.payment_intent
+        )
+        
+        messages.success(request, 'Registration completed successfully!')
+        return redirect('sportsSignUp:teams/team_signup_success')
+        
+    except Exception as e:
+        messages.error(request, f'Error processing registration: {str(e)}')
+        return redirect('/')
+
+def send_team_email(request, team_id):
+    """Send email to all team members"""
+    if not request.user.is_admin():
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+        
+    team = get_object_or_404(Team, id=team_id)
+    subject = request.POST.get('subject')
+    message = request.POST.get('message')
+    
+    try:
+        recipients = team.players.values_list('email', flat=True)
+        # Add your email sending logic here
+        
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)

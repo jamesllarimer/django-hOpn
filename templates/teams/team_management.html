@@ -1,0 +1,141 @@
+{# sportsSignUp/templates/teams/team_management.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Filters -->
+    <div class="mb-8">
+        <form method="get" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label for="league" class="block text-sm font-medium text-gray-700">League</label>
+                <select name="league" id="league" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    <option value="">All Leagues</option>
+                    {% for league in leagues %}
+                        <option value="{{ league.id }}" {% if request.GET.league == league.id|stringformat:"s" %}selected{% endif %}>
+                            {{ league.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="division" class="block text-sm font-medium text-gray-700">Division</label>
+                <select name="division" id="division" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    <option value="">All Divisions</option>
+                    {% for division in divisions %}
+                        <option value="{{ division.id }}" {% if request.GET.division == division.id|stringformat:"s" %}selected{% endif %}>
+                            {{ division.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="search" class="block text-sm font-medium text-gray-700">Search</label>
+                <input type="text" name="search" id="search" value="{{ request.GET.search }}" 
+                       class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
+                       placeholder="Search teams...">
+            </div>
+        </form>
+    </div>
+
+    <!-- Teams Table -->
+    <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">League</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Division</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Players</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for team in teams %}
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap">{{ team.name }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">{{ team.league.name }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">{{ team.division.name }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">{{ team.players.count }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                            <button onclick="showEditModal('{{ team.id }}')" 
+                                    class="text-indigo-600 hover:text-indigo-900">Edit</button>
+                            <button onclick="showEmailModal('{{ team.id }}')"
+                                    class="text-blue-600 hover:text-blue-900">Email Team</button>
+                            <button onclick="copySignupLink('{{ team.get_signup_url }}')"
+                                    class="text-green-600 hover:text-green-900">Copy Sign-up Link</button>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                            No teams found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Email Modal -->
+    <div id="emailModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-medium mb-4">Send Email to Team</h3>
+            <form id="emailForm" method="post">
+                {% csrf_token %}
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Subject</label>
+                    <input type="text" name="subject" class="w-full border rounded px-3 py-2">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Message</label>
+                    <textarea name="message" rows="4" class="w-full border rounded px-3 py-2"></textarea>
+                </div>
+                <div class="flex justify-end space-x-2">
+                    <button type="button" onclick="closeEmailModal()" 
+                            class="px-4 py-2 bg-gray-200 rounded">Cancel</button>
+                    <button type="submit" 
+                            class="px-4 py-2 bg-blue-500 text-white rounded">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function copySignupLink(url) {
+    const fullUrl = window.location.origin + url;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+        // Create and show a temporary success message
+        const message = document.createElement('div');
+        message.textContent = 'Sign-up link copied to clipboard!';
+        message.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg';
+        document.body.appendChild(message);
+        
+        // Remove the message after 3 seconds
+        setTimeout(() => {
+            message.remove();
+        }, 3000);
+    }).catch(() => {
+        alert('Failed to copy link. Please try again.');
+    });
+}
+
+function showEmailModal(teamId) {
+    const modal = document.getElementById('emailModal');
+    const form = document.getElementById('emailForm');
+    form.action = `/sportsSignUp/teams/${teamId}/send-email/`;
+    modal.classList.remove('hidden');
+}
+
+function closeEmailModal() {
+    document.getElementById('emailModal').classList.add('hidden');
+}
+
+// Close modal when clicking outside
+document.getElementById('emailModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEmailModal();
+    }
+});
+</script>
+{% endblock %}
