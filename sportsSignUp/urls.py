@@ -26,5 +26,11 @@ urlpatterns = [
     path('registrations/assign-team/<int:player_id>/', 
         views.assign_team, 
         name='assign_team'),
+    path('api/divisions-by-league/<int:league_id>/', 
+        views.get_divisions_by_league, 
+        name='get_divisions_by_league'),
+    path('api/teams-by-division/<int:division_id>/', 
+        views.get_teams_by_division, 
+         name='get_teams_by_division'),
          
 ]

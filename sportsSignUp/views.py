@@ -21,7 +21,7 @@ from .models import Sport, Team, Player, Division, League, Registration
 import stripe
 from django.views.generic import ListView
 from django.contrib.auth.mixins import UserPassesTestMixin
-from django.db.models import Count
+from django.db.models import Count, Q
 from collections import defaultdict
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import user_passes_test
@@ -308,67 +308,110 @@ class RegistrationManagementView(AdminRequiredMixin, ListView):
             'player__team'
         ).order_by('division', 'player__team', 'player__last_name')
         
-        # Filter by league if specified
+        # Apply filters
+        filters = Q()
+        
+        # League filter
         league_id = self.request.GET.get('league')
         if league_id:
-            queryset = queryset.filter(league_id=league_id)
-        
-        return queryset
+            filters &= Q(league_id=league_id)
+            
+        # Division filter
+        division_id = self.request.GET.get('division')
+        if division_id:
+            filters &= Q(division_id=division_id)
+            
+        # Team filter
+        team_id = self.request.GET.get('team')
+        if team_id:
+            filters &= Q(player__team_id=team_id)
+            
+        # Search filter
+        search_query = self.request.GET.get('search', '').strip()
+        if search_query:
+            search_filters = (
+                Q(player__first_name__icontains=search_query) |
+                Q(player__last_name__icontains=search_query) |
+                Q(player__email__icontains=search_query) |
+                Q(player__phone_number__icontains=search_query)
+            )
+            filters &= search_filters
+            
+        return queryset.filter(filters)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         
+        # Get current filter values
+        league_id = self.request.GET.get('league')
+        division_id = self.request.GET.get('division')
+        team_id = self.request.GET.get('team')
+        search_query = self.request.GET.get('search', '')
+        
         # Get all leagues for the filter
         context['leagues'] = League.objects.all().order_by('name')
-        context['selected_league'] = self.request.GET.get('league')
+        context['selected_league'] = league_id
         
-        # Organize registrations by division and team
+        # Get divisions based on selected league
+        if league_id:
+            context['divisions'] = Division.objects.filter(
+                league_sessions__id=league_id
+            ).distinct().order_by('name')
+        else:
+            context['divisions'] = Division.objects.none()
+        context['selected_division'] = division_id
+        
+        # Get teams based on selected division
+        if division_id:
+            context['teams'] = Team.objects.filter(
+                division_id=division_id
+            ).order_by('name')
+        else:
+            context['teams'] = Team.objects.none()
+        context['selected_team'] = team_id
+        
+        # Keep the search query
+        context['search_query'] = search_query
+        
+        # Organize registrations
         organized_data = defaultdict(lambda: defaultdict(list))
         free_agents = defaultdict(list)
         
-        # Process registrations
         for registration in self.get_queryset():
             if registration.player.team:
                 organized_data[registration.division][registration.player.team].append(registration)
             else:
-                print(f"Adding free agent to division {registration.division.name}")  # Debug print
                 free_agents[registration.division].append(registration)
 
-        # Convert nested defaultdict to regular dict
-        final_data = {}
-        for division, teams_dict in organized_data.items():
-            final_data[division] = dict(teams_dict)
+        # Convert to regular dicts
+        context['organized_data'] = {
+            division: dict(teams_dict)
+            for division, teams_dict in organized_data.items()
+        }
+        context['free_agents'] = dict(free_agents)
         
-        # Convert free_agents defaultdict to regular dict
-        final_free_agents = dict(free_agents)
-        
-        # Debug prints
-        print("\n=== Final Data Structure ===")
-        print("\nTeam Registrations:")
-        for division, teams in final_data.items():
-            print(f"\nDivision: {division.name}")
-            for team, registrations in teams.items():
-                print(f"  Team: {team.name}")
-                print(f"  Number of registrations: {len(registrations)}")
-                
-        print("\nFree Agents:")
-        for division, registrations in final_free_agents.items():
-            print(f"Division: {division.name}")
-            print(f"Number of free agents: {len(registrations)}")
-            for reg in registrations:
-                print(f"  - {reg.player.get_full_name()}")
-        
-        context['organized_data'] = final_data
-        context['free_agents'] = final_free_agents
-        
-        # Get statistics
-        stats_queryset = self.get_queryset()
+        # Stats for current filter
+        current_queryset = self.get_queryset()
         context['stats'] = {
-            'total_registrations': stats_queryset.count(),
-            'total_free_agents': stats_queryset.filter(player__team__isnull=True).count(),
-            'divisions_count': stats_queryset.values('division').distinct().count(),
-            'teams_count': stats_queryset.exclude(player__team__isnull=True)
+            'total_registrations': current_queryset.count(),
+            'total_free_agents': current_queryset.filter(player__team__isnull=True).count(),
+            'divisions_count': current_queryset.values('division').distinct().count(),
+            'teams_count': current_queryset.exclude(player__team__isnull=True)
                 .values('player__team').distinct().count(),
         }
         
         return context
+    
+
+def get_divisions_by_league(request, league_id):
+    divisions = Division.objects.filter(
+        league_sessions__id=league_id
+    ).distinct().values('id', 'name')
+    return JsonResponse(list(divisions), safe=False)
+
+
+def get_teams_by_division(request, division_id):
+    teams = Team.objects.filter(
+        division_id=division_id
+    ).values('id', 'name')
+    return JsonResponse(list(teams), safe=False)
