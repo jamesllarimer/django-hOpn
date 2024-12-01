@@ -23,6 +23,11 @@ from django.views.generic import ListView
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.db.models import Count
 from collections import defaultdict
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import user_passes_test
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.contrib import messages
 
 stripe.api_key = settings.TEST_STRIPE_SECRET_KEY
 
@@ -33,7 +38,91 @@ def index(request):
         "teams": teams_list,
     }
     return render(request, "index.html", context)
+def get_teams_by_league(request, league_id):
+        """API endpoint to get all teams organized by division for a league"""
+        league = get_object_or_404(League, id=league_id)
+        divisions = league.available_divisions.all()
+    
+        data = []
+        for division in divisions:
+            teams = Team.objects.filter(
+                league=league,
+                division=division
+            ).values('id', 'name')
+        
+            data.append({
+                'id': division.id,
+                'name': division.name,
+                'teams': list(teams)
+            })
+    
+        return JsonResponse(data, safe=False)
 
+@require_POST
+def assign_team(request, player_id):
+    """Handle team assignment for a player"""
+    print("Received POST data:", request.POST)  # Debug print
+    print("team_id from POST:", request.POST.get('team_id'))  # Debug print
+    
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+    
+    if not request.user.is_staff:
+        return JsonResponse({'error': 'Admin privileges required'}, status=403)
+
+    try:
+        team_id = request.POST.get('team_id')
+        if not team_id:
+            return JsonResponse({'error': 'No team_id provided in form data'}, status=400)
+
+        print(f"Looking up team with ID: {team_id}")  # Debug print
+        team = get_object_or_404(Team, id=team_id)
+        player = get_object_or_404(Player, id=player_id)
+        
+        # Get the player's registration for this league
+        registration = Registration.objects.filter(
+            player=player,
+            league=team.league
+        ).first()
+        
+        if registration:
+            # Store old values for messaging
+            old_division = registration.division
+            old_team = player.team
+            
+            # Update registration with new division
+            registration.division = team.division
+            registration.save()
+            
+            # Update player's team
+            player.team = team
+            player.save()
+            
+            # Prepare message about changes
+            changes = []
+            if old_team != team:
+                changes.append(f"Team changed from {old_team.name if old_team else 'Free Agent'} to {team.name}")
+            if old_division != team.division:
+                changes.append(f"Division changed from {old_division.name} to {team.division.name}")
+            
+            message = " and ".join(changes)
+        else:
+            return JsonResponse({
+                'error': f"No registration found for player {player.get_full_name()} in league {team.league.name}"
+            }, status=400)
+        
+        return JsonResponse({
+            'status': 'success',
+            'message': message
+        })
+        
+    except Exception as e:
+        print(f"Error in assign_team: {str(e)}")  # Debug print
+        return JsonResponse({
+            'status': 'error',
+            'error': str(e)
+        }, status=400)
+    
 def active_leagues(request):
     """
     View to display currently active leagues
@@ -215,14 +304,15 @@ class RegistrationManagementView(AdminRequiredMixin, ListView):
         queryset = Registration.objects.select_related(
             'player',
             'league',
-            'division'
+            'division',
+            'player__team'
         ).order_by('division', 'player__team', 'player__last_name')
         
         # Filter by league if specified
         league_id = self.request.GET.get('league')
         if league_id:
             queryset = queryset.filter(league_id=league_id)
-            
+        
         return queryset
 
     def get_context_data(self, **kwargs):
@@ -236,22 +326,61 @@ class RegistrationManagementView(AdminRequiredMixin, ListView):
         organized_data = defaultdict(lambda: defaultdict(list))
         free_agents = defaultdict(list)
         
+        print("\nDetailed Registration Analysis:")
         for registration in self.get_queryset():
+            print(f"\nRegistration #{registration.id}")
+            print(f"Player: {registration.player.get_full_name()}")
+            print(f"League: {registration.league}")
+            print(f"Division: {registration.division}")
+            print(f"Player's Team: {registration.player.team}")
+            print(f"Payment Status: {registration.payment_status}")
+
+            # Validating data completeness
+            if not registration.division:
+                print("WARNING: Registration has no division")
+                continue
+
             if registration.player.team:
-                organized_data[registration.division][registration.player.team].append(registration)
+                team = registration.player.team
+                print(f"Team Division: {team.division}")
+                print(f"Team League: {team.league}")
+                
+                # Check if team's division matches registration's division
+                if team.division != registration.division:
+                    print(f"WARNING: Team division ({team.division}) doesn't match registration division ({registration.division})")
+                
+                organized_data[registration.division][team].append(registration)
+                print(f"Added to organized data under division '{registration.division}' and team '{team}'")
             else:
                 free_agents[registration.division].append(registration)
-        
+                print("Added to free agents")
+
+        # Print organized data structure
+        print("\nOrganized Data Structure:")
+        for division, teams in organized_data.items():
+            print(f"\nDivision: {division.name}")
+            for team, registrations in teams.items():
+                print(f"  Team: {team.name}")
+                print(f"  Players: {', '.join(r.player.get_full_name() for r in registrations)}")
+
+        # Print free agents structure
+        print("\nFree Agents Structure:")
+        for division, registrations in free_agents.items():
+            print(f"\nDivision: {division.name}")
+            print(f"Players: {', '.join(r.player.get_full_name() for r in registrations)}")
+
         context['organized_data'] = dict(organized_data)
         context['free_agents'] = dict(free_agents)
         
         # Get some statistics
+        stats_queryset = self.get_queryset()
         context['stats'] = {
-            'total_registrations': self.get_queryset().count(),
-            'total_free_agents': self.get_queryset().filter(player__team__isnull=True).count(),
-            'divisions_count': self.get_queryset().values('division').distinct().count(),
-            'teams_count': self.get_queryset().exclude(player__team__isnull=True)
+            'total_registrations': stats_queryset.count(),
+            'total_free_agents': stats_queryset.filter(player__team__isnull=True).count(),
+            'divisions_count': stats_queryset.values('division').distinct().count(),
+            'teams_count': stats_queryset.exclude(player__team__isnull=True)
                 .values('player__team').distinct().count(),
         }
         
         return context
+

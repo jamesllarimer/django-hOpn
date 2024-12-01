@@ -20,5 +20,11 @@ urlpatterns = [
     path('registrations/manage/', 
         views.RegistrationManagementView.as_view(), 
         name='registration_management'),
+    path('api/teams-by-league/<int:league_id>/', 
+        views.get_teams_by_league, 
+        name='get_teams_by_league'),
+    path('registrations/assign-team/<int:player_id>/', 
+        views.assign_team, 
+        name='assign_team'),
          
 ]

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Sport, Team, Player, Division , CustomUser, League, StripeProduct, StripePrice, TeamCaptain
+from .models import Sport, Team, Player, Division , CustomUser, League, StripeProduct, StripePrice, TeamCaptain, Registration
 from django.urls import path
 from django.shortcuts import redirect
 from django.contrib import messages
@@ -10,6 +10,7 @@ admin.site.register(Player)
 admin.site.register(Division)
 admin.site.register(CustomUser)
 admin.site.register(League)
+admin.site.register(Registration)
 
 @admin.register(TeamCaptain)
 class TeamCaptainAdmin(admin.ModelAdmin):
