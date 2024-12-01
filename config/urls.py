@@ -22,4 +22,5 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('sportsSignUp/', include('sportsSignUp.urls')),
+    path('', include('django.contrib.auth.urls')),  # This line is crucial for auth views
 ]

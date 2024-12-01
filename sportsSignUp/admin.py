@@ -1,17 +1,57 @@
 from django.contrib import admin
-from .models import Sport, Team, Player, Division , CustomUser, League, StripeProduct, StripePrice
+from .models import Sport, Team, Player, Division , CustomUser, League, StripeProduct, StripePrice, TeamCaptain
 from django.urls import path
 from django.shortcuts import redirect
 from django.contrib import messages
 from .services import sync_stripe_products
 
 admin.site.register(Sport)
-admin.site.register(Team)
 admin.site.register(Player)
 admin.site.register(Division)
 admin.site.register(CustomUser)
 admin.site.register(League)
 
+@admin.register(TeamCaptain)
+class TeamCaptainAdmin(admin.ModelAdmin):
+    list_display = ('first_name', 'last_name', 'email', 'phone_number')
+    search_fields = ('first_name', 'last_name', 'email')
+
+class PlayerInline(admin.TabularInline):  # You could also use admin.StackedInline for a different layout
+    model = Player
+    extra = 0  # Number of empty forms to display
+    fields = ('first_name', 'last_name', 'email', 'phone_number', 'is_active')
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ('name', 'league', 'division', 'captain', 'needs_real_captain')
+    list_filter = ('league', 'division')
+    search_fields = ('name', 'captain__first_name', 'captain__last_name')
+    inlines = [PlayerInline]
+
+    def needs_real_captain(self, obj):
+        return obj.captain.is_system_captain
+    needs_real_captain.boolean = True
+    needs_real_captain.short_description = 'Needs Captain'
+class PlayerAdmin(admin.ModelAdmin):
+    list_display = ('first_name', 'last_name', 'email', 'team', 'membership_number', 'is_member')
+    list_filter = ('is_member', 'is_active', 'team')
+    search_fields = ('first_name', 'last_name', 'email', 'membership_number', 'parent_name')
+    fieldsets = (
+        ('Personal Information', {
+            'fields': ('first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'parent_name')
+        }),
+        ('Membership Details', {
+            'fields': ('membership_number', 'is_member')
+        }),
+        ('Team Information', {
+            'fields': ('team', 'jersey_number', 'position', 'is_active')
+        }),
+        ('User Account', {
+            'fields': ('user',),
+            'classes': ('collapse',)  # Makes this section collapsible in admin
+        })
+    )
+# stripe section 
 class StripePriceInline(admin.TabularInline):
     model = StripePrice
     readonly_fields = ('stripe_id', 'currency', 'unit_amount', 'recurring', 
