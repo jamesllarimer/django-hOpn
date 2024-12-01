@@ -47,6 +47,9 @@
                 <a href="{% url 'sportsSignUp:active_leagues' %}" class="block py-2 hover:bg-blue-600 rounded">
                     Active Leagues
                 </a>
+                {% if user.is_authenticated and user.is_admin %}
+                <a href="{% url 'sportsSignUp:registration_management' %}" class="nav-link">Manage Registrations</a>
+                {% endif %}
             </div>
         </div>
     </header>

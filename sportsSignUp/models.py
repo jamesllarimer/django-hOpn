@@ -169,7 +169,7 @@ class Team(models.Model):
 
 class Player(models.Model):
     """
-    Represents a player who may or may not have a user account
+    Represents a player who may or may not have a team yet
     """
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
@@ -179,7 +179,7 @@ class Player(models.Model):
     date_of_birth = models.DateField()
     membership_number = models.CharField(max_length=50, null=True, blank=True)
     is_member = models.BooleanField(default=False)
-    
+    3
     # Optional link to user account
     user = models.ForeignKey(CustomUser, 
                             on_delete=models.SET_NULL, 
@@ -187,16 +187,22 @@ class Player(models.Model):
                             blank=True,
                             related_name='linked_players')
     
-    # Team membership
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='players')
-    joined_team_date = models.DateField(auto_now_add=True)
+    # Make team optional for free agents
+    team = models.ForeignKey(Team, 
+                            on_delete=models.CASCADE, 
+                            related_name='players',
+                            null=True,  # Allow null for free agents
+                            blank=True)  # Make it optional in forms
+    
     is_active = models.BooleanField(default=True)
 
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}"
     
     def __str__(self):
-        return f"{self.get_full_name()} - {self.team.name}"
+        if self.team:
+            return f"{self.get_full_name()} - {self.team.name}"
+        return f"{self.get_full_name()} (Free Agent)"
 
 class Registration(models.Model):
     """
@@ -204,29 +210,28 @@ class Registration(models.Model):
     """
     player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='registrations')
     league = models.ForeignKey(League, on_delete=models.CASCADE, related_name='registrations')
+    division = models.ForeignKey(Division, on_delete=models.CASCADE, related_name='registrations')
     registered_at = models.DateTimeField(auto_now_add=True)
-    is_early_registration = models.BooleanField(default=False)
     
-    # Payment tracking
+    # Payment information
     payment_status = models.CharField(max_length=50, choices=[
         ('pending', 'Pending'),
         ('paid', 'Paid'),
         ('cancelled', 'Cancelled'),
+        ('refunded', 'Refunded')
     ], default='pending')
     stripe_payment_intent = models.CharField(max_length=255, blank=True, null=True)
+    stripe_checkout_session = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Additional information
+    notes = models.TextField(blank=True)
+    is_late_registration = models.BooleanField(default=False)
     
     class Meta:
-        unique_together = ('player', 'league')
-    
-    def save(self, *args, **kwargs):
-        if not self.pk:  # Only on creation
-            league = self.league
-            now = timezone.now().date()
-            self.is_early_registration = (league.registration_start_date <= now <= league.early_registration_deadline)
-        super().save(*args, **kwargs)
+        unique_together = ('player', 'league')  # Prevent duplicate registrations
     
     def __str__(self):
-        return f"{self.player.user.get_full_name()} - {self.league.name}"# Stripe models
+        return f"{self.player.get_full_name()} - {self.league.name} ({self.payment_status})"
 
 class StripeProduct(models.Model):
     stripe_id = models.CharField(max_length=100, unique=True)

@@ -22,6 +22,7 @@ env.read_env(os.path.join(BASE_DIR, ".env"))
 SECRET_KEY = env('SECRET_KEY')
 
 TEST_STRIPE_SECRET_KEY = env('TEST_STRIPE_SECRET_KEY')
+STRIPE_LATE_FEE_PRICE_ID = 'price_1QR3hBA4CECRU4aHgeNYJLTf'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool('DJANGO_DEBUG', default=True)
@@ -146,6 +147,6 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # For developm
 # EMAIL_HOST_PASSWORD = 'your-email-password'
 
 # Login/Logout settings
-LOGIN_REDIRECT_URL = 'home'  # Change this to your home page URL name
+LOGIN_REDIRECT_URL = ''  # Change this to your home page URL name
 LOGOUT_REDIRECT_URL = 'login'
 LOGIN_URL = 'login'
