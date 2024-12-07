@@ -7,6 +7,8 @@
     
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Add this in your base.html template's head section -->
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     
     {% block extra_head %}{% endblock %}
 </head>
@@ -75,6 +77,9 @@
             mobileMenu.classList.toggle('hidden');
         });
     </script>
+    <style>
+    [x-cloak] { display: none !important; }
+    </style>
 
     {% block extra_scripts %}{% endblock %}
 </body>

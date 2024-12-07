@@ -410,7 +410,22 @@ def get_divisions_by_league(request, league_id):
     ).distinct().values('id', 'name')
     return JsonResponse(list(divisions), safe=False)
 
-
+def divisions_and_teams_by_league(request, league_id):
+    # Get divisions through league sessions
+    divisions = Division.objects.filter(
+        league_sessions__id=league_id
+    ).distinct().prefetch_related('teams')
+    
+    data = [{
+        'id': division.id,
+        'name': division.name,
+        'teams': [{
+            'id': team.id,
+            'name': team.name
+        } for team in division.teams.all()]
+    } for division in divisions]
+    
+    return JsonResponse(data, safe=False)
 def get_teams_by_division(request, division_id):
     teams = Team.objects.filter(
         division_id=division_id

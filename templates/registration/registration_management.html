@@ -2,19 +2,186 @@
 {% load registration_tags %}
 
 {% block content %}
-<div class="container mx-auto px-4 py-8">
+<div class="container mx-auto px-4 py-8" x-data="{
+    leagueId: '{{ selected_league }}',
+    divisionId: '{{ selected_division }}',
+    teamId: '{{ selected_team }}',
+    searchQuery: '{{ search_query }}',
+    searchTimeout: null,
+    divisions: [],
+    teams: [],
+    
+    init() {
+        if (this.searchQuery) {
+            this.$refs.searchInput.focus();
+        }
+    },
+
+    debounceSearch(event) { 
+        const input = event.target;
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = setTimeout(() => {
+            input.form.submit();
+        }, 300);
+    },
+    showModal: false,
+    selectedPlayerId: null,
+    selectedLeagueId: null,
+    modalTeams: [],
+    modalStatus: '',
+    isLoading: false,
+    
+    
+    async fetchDivisions() {
+        if (!this.leagueId) {
+            this.divisions = [];
+            this.teams = [];
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/sportsSignUp/api/divisions-by-league/${this.leagueId}/`);
+            console.log('Divisions response:', response);
+            const data = await response.json();
+            console.log('Divisions data:', data);
+            this.divisions = data;
+            this.divisionId = '';
+            this.teams = [];
+        } catch (error) {
+            console.error('Error fetching divisions:', error);
+            this.divisions = [];
+        }
+    },
+    
+    async fetchTeams() {
+        if (!this.divisionId) {
+            this.teams = [];
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/sportsSignUp/api/teams-by-division/${this.divisionId}/`);
+            console.log('Teams response:', response);
+            const data = await response.json();
+            console.log('Teams data:', data);
+            this.teams = data;
+            this.teamId = '';
+        } catch (error) {
+            console.error('Error fetching teams:', error);
+            this.teams = [];
+        }
+    },
+    
+    async fetchModalTeams() {
+        this.isLoading = true;
+        this.modalStatus = 'Loading teams...';
+        
+        try {
+            const response = await fetch(`/sportsSignUp/api/teams-by-league/${this.selectedLeagueId}/`);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to fetch teams');
+            }
+            
+            this.modalTeams = data;
+            this.modalStatus = '';
+        } catch (error) {
+            this.modalStatus = `Error: ${error.message}`;
+            console.error('Error:', error);
+        } finally {
+            this.isLoading = false;
+        }
+    },
+    
+    async assignTeam(event) {
+        event.preventDefault();
+        const form = event.target;
+        const teamId = form.querySelector('#modalTeamSelect').value;
+        
+        if (!teamId) {
+            this.modalStatus = 'Please select a team.';
+            return;
+        }
+        
+        this.isLoading = true;
+        this.modalStatus = 'Assigning team...';
+        
+        try {
+            const response = await fetch(`/sportsSignUp/registrations/assign-team/${this.selectedPlayerId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: new URLSearchParams({
+                    'team_id': teamId,
+                    'csrfmiddlewaretoken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to assign team');
+            }
+            
+            this.modalStatus = 'Team assigned successfully!';
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } catch (error) {
+            this.modalStatus = `Error: ${error.message}`;
+            console.error('Error:', error);
+        } finally {
+            this.isLoading = false;
+        }
+    },
+    async fetchDivisionAndTeams() {
+    if (!this.leagueId) {
+        this.divisions = [];
+        this.teams = [];
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/sportsSignUp/api/divisions-and-teams-by-league/${this.leagueId}/`);
+        const data = await response.json();
+        console.log('League data:', data);
+        
+        // Extract just the division info for the divisions dropdown
+        this.divisions = data.map(division => ({
+            id: division.id,
+            name: division.name
+        }));
+        
+        // Flatten all teams from all divisions for the teams dropdown
+        this.teams = data.flatMap(division => division.teams);
+        
+        this.divisionId = '';
+        this.$refs.filterForm.submit();
+    } catch (error) {
+        console.error('Error fetching divisions and teams:', error);
+        this.divisions = [];
+        this.teams = [];
+    }
+},
+}">
     <div class="mb-8">
-        <form id="filterForm" method="get" class="space-y-4">
+        <form id="filterForm" method="get" class="space-y-4" x-ref="filterForm">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <!-- League Filter -->
                 <div>
                     <label for="leagueSelect" class="block text-sm font-medium text-gray-700">League</label>
-                    <select id="leagueSelect" name="league" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    <select id="leagueSelect" 
+                            name="league" 
+                            x-model="leagueId"
+                            @change="fetchDivisionAndTeams()"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
                         <option value="">All Leagues</option>
                         {% for league in leagues %}
-                            <option value="{{ league.id }}" {% if selected_league == league.id|stringformat:"s" %}selected{% endif %}>
-                                {{ league.name }}
-                            </option>
+                            <option value="{{ league.id }}">{{ league.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -22,26 +189,32 @@
                 <!-- Division Filter -->
                 <div>
                     <label for="divisionSelect" class="block text-sm font-medium text-gray-700">Division</label>
-                    <select id="divisionSelect" name="division" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" {% if not selected_league %}disabled{% endif %}>
+                    <select id="divisionSelect" 
+                            name="division" 
+                            x-model="divisionId"
+                            @change="$refs.filterForm.submit()"
+                            :disabled="!leagueId"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
                         <option value="">All Divisions</option>
-                        {% for division in divisions %}
-                            <option value="{{ division.id }}" {% if selected_division == division.id|stringformat:"s" %}selected{% endif %}>
-                                {{ division.name }}
-                            </option>
-                        {% endfor %}
+                        <template x-for="division in divisions" :key="division.id">
+                            <option :value="division.id" x-text="division.name"></option>
+                        </template>
                     </select>
                 </div>
     
                 <!-- Team Filter -->
                 <div>
                     <label for="teamSelect" class="block text-sm font-medium text-gray-700">Team</label>
-                    <select id="teamSelect" name="team" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" {% if not selected_division %}disabled{% endif %}>
+                    <select id="teamSelect" 
+                            name="team" 
+                            x-model="teamId"
+                            @change="$refs.filterForm.submit()"
+                            :disabled="!leagueId"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
                         <option value="">All Teams</option>
-                        {% for team in teams %}
-                            <option value="{{ team.id }}" {% if selected_team == team.id|stringformat:"s" %}selected{% endif %}>
-                                {{ team.name }}
-                            </option>
-                        {% endfor %}
+                        <template x-for="team in teams" :key="team.id">
+                            <option :value="team.id" x-text="team.name"></option>
+                        </template>
                     </select>
                 </div>
     
@@ -49,9 +222,10 @@
                 <div>
                     <label for="searchInput" class="block text-sm font-medium text-gray-700">Search</label>
                     <input type="text" 
-                           id="searchInput" 
+                           x-ref="searchInput" 
                            name="search" 
-                           value="{{ search_query }}"
+                           x-model="searchQuery"
+                           @input="debounceSearch($event)"
                            placeholder="Search players..."
                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
                 </div>
@@ -61,6 +235,7 @@
 
     <!-- Statistics -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <!-- Statistics cards remain the same -->
         <div class="bg-white p-4 rounded-lg shadow">
             <div class="text-xl font-bold">{{ stats.total_registrations }}</div>
             <div class="text-gray-600">Total Registrations</div>
@@ -78,63 +253,66 @@
             <div class="text-gray-600">Teams</div>
         </div>
     </div>
-<!-- Free Agents Section -->
-{% for division, registrations in free_agents.items %}
-{% if registrations %}
-    <div class="mb-8">
-        <h2 class="text-2xl font-bold mb-4">Free Agents - {{ division.name }}</h2>
-        <div class="bg-white rounded-lg shadow overflow-hidden">
-            <table class="min-w-full">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {% for registration in registrations %}
+
+    <!-- Free Agents Section -->
+    {% for division, registrations in free_agents.items %}
+    {% if registrations %}
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold mb-4">Free Agents - {{ division.name }}</h2>
+            <!-- Table structure remains the same, but add Alpine.js for team assignment -->
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <table class="min-w-full">
+                    <!-- Table header remains the same -->
+                    <thead class="bg-gray-50">
                         <tr>
-                            <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.get_full_name }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.email }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                {% if registration.player.is_member %}
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                        Member
-                                    </span>
-                                {% else %}
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                                        Non-Member
-                                    </span>
-                                {% endif %}
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                    {% if registration.payment_status == 'paid' %}bg-green-100 text-green-800
-                                    {% elif registration.payment_status == 'pending' %}bg-yellow-100 text-yellow-800
-                                    {% else %}bg-red-100 text-red-800{% endif %}">
-                                    {{ registration.payment_status|title }}
-                                </span>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                <a href="#" onclick="openModal('{{ registration.player.id }}', '{{ registration.league.id }}')" class="text-indigo-600 hover:text-indigo-900">
-                                    Assign Team
-                                </a>
-                            </td>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for registration in registrations %}
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.get_full_name }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.email }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {% if registration.player.is_member %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                                        {% if registration.player.is_member %}Member{% else %}Non-Member{% endif %}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                        {% if registration.payment_status == 'paid' %}bg-green-100 text-green-800
+                                        {% elif registration.payment_status == 'pending' %}bg-yellow-100 text-yellow-800
+                                        {% else %}bg-red-100 text-red-800{% endif %}">
+                                        {{ registration.payment_status|title }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <a href="#" 
+                                       @click.prevent="selectedPlayerId = '{{ registration.player.id }}'; 
+                                                     selectedLeagueId = '{{ registration.league.id }}';
+                                                     showModal = true;
+                                                     fetchModalTeams()"
+                                       class="text-indigo-600 hover:text-indigo-900">
+                                        Assign Team
+                                    </a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
-{% endif %}
-{% endfor %}
-<!-- Teams by Division -->
-{% for division, teams in organized_data.items %}
+    {% endif %}
+    {% endfor %}
+
+    <!-- Teams by Division Section -->
+    {% for division, teams in organized_data.items %}
     <div class="mb-8">
         <h2 class="text-2xl font-bold mb-4">{{ division.name }}</h2>
         {% if teams %}
@@ -160,15 +338,9 @@
                                         <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.email }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap">
-                                            {% if registration.player.is_member %}
-                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                                    Member
-                                                </span>
-                                            {% else %}
-                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                                                    Non-Member
-                                                </span>
-                                            {% endif %}
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {% if registration.player.is_member %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                                                {% if registration.player.is_member %}Member{% else %}Non-Member{% endif %}
+                                            </span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
@@ -179,7 +351,12 @@
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <a href="#" onclick="openModal('{{ registration.player.id }}', '{{ registration.league.id }}')" class="text-indigo-600 hover:text-indigo-900">
+                                            <a href="#" 
+                                               @click.prevent="selectedPlayerId = '{{ registration.player.id }}'; 
+                                                             selectedLeagueId = '{{ registration.league.id }}';
+                                                             showModal = true;
+                                                             fetchModalTeams()"
+                                               class="text-indigo-600 hover:text-indigo-900">
                                                 Change Team
                                             </a>
                                         </td>
@@ -194,295 +371,61 @@
             <p class="text-gray-500">No teams in this division.</p>
         {% endif %}
     </div>
-{% endfor %}
+    {% endfor %}
 
-<!-- Team Assignment Modal -->
-<div id="assignTeamModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
-    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-        <div class="mt-3">
-            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Assign to Team</h3>
-            <form id="teamAssignmentForm" method="post">
-                {% csrf_token %}
-                <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="modalTeamSelect">
-                        Select Team
-                    </label>
-                    <select id="modalTeamSelect" name="team_id" class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-                        <option value="">Select a team...</option>
-                    </select>
-                    <div id="teamSelectStatus" class="mt-2 text-sm"></div>
-                </div>
-                <div class="flex items-center justify-between mt-6">
-                    <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
-                        Cancel
-                    </button>
-                    <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                        Assign Team
-                    </button>
-                </div>
-            </form>
+    <!-- Team Assignment Modal -->
+    <div x-show="showModal"
+         x-cloak
+         @click.away="showModal = false"
+         class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Assign to Team</h3>
+                <form @submit.prevent="assignTeam($event)">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="modalTeamSelect">
+                            Select Team
+                        </label>
+                        <select id="modalTeamSelect" 
+                                name="team_id" 
+                                class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                :disabled="isLoading">
+                            <option value="">Select a team...</option>
+                            <template x-for="division in modalTeams" :key="division.id">
+                                <optgroup :label="division.name">
+                                    <template x-for="team in division.teams" :key="team.id">
+                                        <option :value="team.id" x-text="team.name"></option>
+                                    </template>
+                                </optgroup>
+                            </template>
+                        </select>
+                        <div x-show="modalStatus" 
+                             x-text="modalStatus"
+                             :class="{
+                                'text-blue-600': modalStatus.includes('Loading'),
+                                'text-green-600': modalStatus.includes('success'),
+                                'text-red-600': modalStatus.includes('Error')
+                             }"
+                             class="mt-2 text-sm">
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between mt-6">
+                        <button type="button" 
+                                @click="showModal = false"
+                                class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+                            Cancel
+                        </button>
+                        <button type="submit" 
+                                :disabled="isLoading"
+                                class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">
+                            <span x-show="!isLoading">Assign Team</span>
+                            <span x-show="isLoading">Assigning...</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
-
-
-
-{# Add this at the bottom of your registration_management.html #}
-<script>
-    const filterForm = document.getElementById('filterForm');
-const leagueSelect = document.getElementById('leagueSelect');
-const divisionSelect = document.getElementById('divisionSelect');
-const teamSelect = document.getElementById('teamSelect');
-const searchInput = document.getElementById('searchInput');
-
-async function updateDivisions() {
-    const leagueId = leagueSelect.value;
-    divisionSelect.disabled = true;
-    teamSelect.disabled = true;
-    
-    // Clear division and team selects
-    divisionSelect.innerHTML = '<option value="">All Divisions</option>';
-    teamSelect.innerHTML = '<option value="">All Teams</option>';
-    
-    if (leagueId) {
-        try {
-            const response = await fetch(`/sportsSignUp/api/divisions-by-league/${leagueId}/`);
-            const divisions = await response.json();
-            
-            divisions.forEach(division => {
-                const option = document.createElement('option');
-                option.value = division.id;
-                option.textContent = division.name;
-                divisionSelect.appendChild(option);
-            });
-            
-            divisionSelect.disabled = false;
-        } catch (error) {
-            console.error('Error fetching divisions:', error);
-        }
-    }
-}
-
-async function updateTeams() {
-    const divisionId = divisionSelect.value;
-    teamSelect.disabled = true;
-    
-    // Clear team select
-    teamSelect.innerHTML = '<option value="">All Teams</option>';
-    
-    if (divisionId) {
-        try {
-            const response = await fetch(`/sportsSignUp/api/teams-by-division/${divisionId}/`);
-            const teams = await response.json();
-            
-            teams.forEach(team => {
-                const option = document.createElement('option');
-                option.value = team.id;
-                option.textContent = team.name;
-                teamSelect.appendChild(option);
-            });
-            
-            teamSelect.disabled = false;
-        } catch (error) {
-            console.error('Error fetching teams:', error);
-        }
-    }
-}
-
-// Event listeners
-leagueSelect.addEventListener('change', () => {
-    updateDivisions();
-    filterForm.submit();
-});
-
-divisionSelect.addEventListener('change', () => {
-    updateTeams();
-    filterForm.submit();
-});
-
-teamSelect.addEventListener('change', () => {
-    filterForm.submit();
-});
-
-// Debounce function for search input
-let searchTimeout;
-searchInput.addEventListener('input', () => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-        filterForm.submit();
-    }, 500);
-});
-    function openModal(playerId, leagueId) {
-        console.log('Opening modal for player:', playerId, 'league:', leagueId);
-        
-        const modal = document.getElementById('assignTeamModal');
-        const playerIdInput = document.getElementById('modalPlayerId');
-        const teamSelect = document.getElementById('modalTeamSelect');
-        const statusDiv = document.getElementById('teamSelectStatus');
-        const form = document.getElementById('teamAssignmentForm');
-    
-        // Set the player ID and form action
-        form.action = `/sportsSignUp/registrations/assign-team/${playerId}/`;
-    
-        // Show loading state
-        teamSelect.disabled = true;
-        statusDiv.innerHTML = '<span class="text-blue-600">Loading teams...</span>';
-        teamSelect.innerHTML = '<option value="">Loading...</option>';
-    
-        // Fetch teams for the league
-        fetch(`/sportsSignUp/api/teams-by-league/${leagueId}/`, {
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            credentials: 'same-origin'
-        })
-        .then(response => {
-            console.log('Response status:', response.status);
-            return response.json().then(data => {
-                if (!response.ok) {
-                    switch(response.status) {
-                        case 401:
-                            throw new Error('Please log in to continue');
-                        case 403:
-                            throw new Error('You do not have permission to perform this action');
-                        case 404:
-                            throw new Error('League not found');
-                        default:
-                            throw new Error(data.error || 'An error occurred');
-                    }
-                }
-                return data;
-            });
-        })
-        .then(divisions => {
-            console.log('Received divisions:', divisions);
-            teamSelect.innerHTML = '<option value="">Select a team...</option>';
-            
-            if (!Array.isArray(divisions)) {
-                throw new Error('Invalid data format received');
-            }
-    
-            if (divisions.length === 0) {
-                statusDiv.innerHTML = '<span class="text-yellow-600">No divisions found in this league.</span>';
-                return;
-            }
-            
-            divisions.forEach(division => {
-                const group = document.createElement('optgroup');
-                group.label = division.name;
-                
-                if (Array.isArray(division.teams)) {
-                    if (division.teams.length === 0) {
-                        const option = document.createElement('option');
-                        option.disabled = true;
-                        option.textContent = 'No teams in this division';
-                        group.appendChild(option);
-                    } else {
-                        division.teams.forEach(team => {
-                            const option = document.createElement('option');
-                            option.value = team.id;
-                            option.textContent = team.name;
-                            option.dataset.divisionId = division.id;
-                            option.dataset.divisionName = division.name;
-                            group.appendChild(option);
-                        });
-                    }
-                }
-                
-                teamSelect.appendChild(group);
-            });
-    
-            statusDiv.innerHTML = '';
-            teamSelect.disabled = false;
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            teamSelect.innerHTML = '<option value="">Error loading teams</option>';
-            statusDiv.innerHTML = `<span class="text-red-600">${error.message}</span>`;
-            teamSelect.disabled = true;
-        });
-    
-        // Show the modal
-        modal.classList.remove('hidden');
-    }
-    
-    function closeModal() {
-        const modal = document.getElementById('assignTeamModal');
-        modal.classList.add('hidden');
-    }
-    
-    // Close modal when clicking outside
-    document.getElementById('assignTeamModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeModal();
-        }
-    });
-    
-    // Form submission handler
-    document.getElementById('teamAssignmentForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        console.log('Form submitted');
-        
-        const form = this;
-        const submitButton = form.querySelector('button[type="submit"]');
-        const statusDiv = document.getElementById('teamSelectStatus');
-        const originalButtonText = submitButton.innerHTML;
-        const teamSelect = document.getElementById('modalTeamSelect');
-    
-        // Log selected value
-        console.log('Selected team_id:', teamSelect.value);
-    
-        // Validate team selection
-        if (!teamSelect.value) {
-            statusDiv.innerHTML = '<span class="text-red-600">Please select a team.</span>';
-            return;
-        }
-    
-        // Log what we're about to send
-        console.log('Sending team_id:', teamSelect.value);
-        console.log('Form action:', form.action);
-    
-        // Disable form and show loading state
-        submitButton.disabled = true;
-        submitButton.innerHTML = 'Assigning...';
-        
-        fetch(form.action, {
-            method: 'POST',
-            headers: {
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: new URLSearchParams({
-                'team_id': teamSelect.value,
-                'csrfmiddlewaretoken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            })
-        })
-        .then(response => {
-            console.log('Response status:', response.status);
-            return response.json().then(data => {
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to assign team');
-                }
-                return data;
-            });
-        })
-        .then(data => {
-            console.log('Success:', data);
-            statusDiv.innerHTML = `<span class="text-green-600">Team assigned successfully!</span>`;
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            statusDiv.innerHTML = `<span class="text-red-600">Error: ${error.message}</span>`;
-            
-            // Re-enable form
-            submitButton.disabled = false;
-            submitButton.innerHTML = originalButtonText;
-        });
-    });
-    </script>
 {% endblock %}
