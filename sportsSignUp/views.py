@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 from urllib import request
 from django import forms
 from django.conf import settings
@@ -29,7 +30,8 @@ from django.contrib.auth.decorators import user_passes_test
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
-
+from django.core.validators import validate_email
+logger = logging.getLogger(__name__)
 stripe.api_key = settings.TEST_STRIPE_SECRET_KEY
 
 
@@ -404,6 +406,123 @@ class RegistrationManagementView(AdminRequiredMixin, ListView):
         return context
     
 
+def get_registrations_by_league(request, league_id):
+    """
+    Retrieve registrations for a specific league with error handling and validation.
+    Includes team information through the Player model relationship.
+    """
+    try:
+        # Validate league_id
+        if not isinstance(league_id, int) and not str(league_id).isdigit():
+            logger.error(f"Invalid league_id format: {league_id}")
+            return JsonResponse({
+                'error': 'Invalid league ID format'
+            }, status=400)
+
+        # Verify league exists
+        league = get_object_or_404(League, id=league_id)
+        
+        try:
+            # Updated query to include player and their team information
+            registrations = Registration.objects.filter(
+                league_id=league_id
+            ).select_related(
+                'division',
+                'player',
+                'player__team'  # Include team data through player
+            ).values(
+                # Registration fields
+                'id',
+                'division_id',
+                'division__name',
+                'is_late_registration',
+                'payment_status',
+                'registered_at',
+                'notes',
+                # Player fields
+                'player__id',
+                'player__first_name',
+                'player__last_name',
+                'player__parent_name',
+                'player__email',
+                'player__phone_number',
+                'player__is_member',
+                # Team fields (through player)
+                'player__team__id',
+                'player__team__name',
+                'player__team__division__id',
+                'player__team__division__name'
+            )
+
+            data = []
+            for reg in registrations:
+                try:
+                    # Basic validation of required fields
+                    if not reg['player__first_name'] or not reg['player__email']:
+                        logger.warning(f"Registration {reg['id']} has missing required fields")
+                        continue
+
+                    # Validate email format
+                    validate_email(reg['player__email'])
+
+                    # Combine first and last name
+                    full_name = f"{reg['player__first_name']} {reg['player__last_name']}".strip()
+
+                    # Transform the registration data
+                    registration_data = {
+                        'id': reg['id'],
+                        'player_id': reg['player__id'],
+                        'player_name': full_name,
+                        'parent_name': reg['player__parent_name'].strip() if reg['player__parent_name'] else None,
+                        'email': reg['player__email'].lower(),
+                        'phone': reg['player__phone_number'],
+                        'division_id': reg['division_id'],
+                        'division_name': reg['division__name'],
+                        # Team information (null if free agent)
+                        'team_id': reg['player__team__id'],
+                        'team_name': reg['player__team__name'],
+                        'team_division_id': reg['player__team__division__id'],
+                        'team_division_name': reg['player__team__division__name'],
+                        # Status information
+                        'is_late_registration': reg['is_late_registration'],
+                        'payment_status': reg['payment_status'],
+                        'is_member': reg['player__is_member'],
+                        'registered_at': reg['registered_at'].isoformat() if reg['registered_at'] else None,
+                        'notes': reg['notes']
+                    }
+
+                    data.append(registration_data)
+
+                except forms.ValidationError as ve:
+                    logger.error(f"Validation error for registration {reg['id']}: {str(ve)}")
+                    continue
+                except KeyError as ke:
+                    logger.error(f"Missing key in registration data: {str(ke)}")
+                    continue
+
+            # Log success
+            logger.info(f"Successfully retrieved {len(data)} registrations for league {league_id}")
+
+            return JsonResponse(data, safe=False)
+
+        except Exception as e:
+            logger.error(f"Database error while fetching registrations: {str(e)}")
+            return JsonResponse({
+                'error': 'Error retrieving registrations'
+            }, status=500)
+
+    except League.DoesNotExist:
+        logger.error(f"League {league_id} not found")
+        return JsonResponse({
+            'error': 'League not found'
+        }, status=404)
+
+    except Exception as e:
+        logger.error(f"Unexpected error in get_registrations_by_league: {str(e)}")
+        return JsonResponse({
+            'error': 'An unexpected error occurred'
+        }, status=500)
+    
 def get_divisions_by_league(request, league_id):
     divisions = Division.objects.filter(
         league_sessions__id=league_id

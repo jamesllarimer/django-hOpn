@@ -2,270 +2,407 @@
 {% load registration_tags %}
 
 {% block content %}
-<div class="container mx-auto px-4 py-8" x-data="{
-    leagueId: '{{ selected_league }}',
-    divisionId: '{{ selected_division }}',
-    teamId: '{{ selected_team }}',
-    searchQuery: '{{ search_query }}',
-    searchTimeout: null,
-    divisions: [],
-    teams: [],
-    
-    init() {
-        if (this.searchQuery) {
-            this.$refs.searchInput.focus();
+<script>
+    // Helper functions moved outside of x-data
+    function apiGet(url) {
+      return fetch(url, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest'
         }
-    },
+      });
+    }
+  
+    function apiPost(url, data) {
+      const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+      return fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrfToken,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: new URLSearchParams({
+          ...data,
+          csrfmiddlewaretoken: csrfToken
+        })
+      });
+    }
 
-    debounceSearch(event) { 
-        const input = event.target;
-        clearTimeout(this.searchTimeout);
-        this.searchTimeout = setTimeout(() => {
-            input.form.submit();
-        }, 300);
-    },
-    showModal: false,
-    selectedPlayerId: null,
-    selectedLeagueId: null,
-    modalTeams: [],
-    modalStatus: '',
-    isLoading: false,
-    
-    
-    async fetchDivisions() {
-        if (!this.leagueId) {
-            this.divisions = [];
-            this.teams = [];
-            return;
-        }
+    async function fetchRegistrationsByLeague(leagueId) {
+        if (!leagueId) return [];
         
         try {
-            const response = await fetch(`/sportsSignUp/api/divisions-by-league/${this.leagueId}/`);
-            console.log('Divisions response:', response);
-            const data = await response.json();
-            console.log('Divisions data:', data);
-            this.divisions = data;
-            this.divisionId = '';
-            this.teams = [];
-        } catch (error) {
-            console.error('Error fetching divisions:', error);
-            this.divisions = [];
-        }
-    },
-    
-    async fetchTeams() {
-        if (!this.divisionId) {
-            this.teams = [];
-            return;
-        }
-        
-        try {
-            const response = await fetch(`/sportsSignUp/api/teams-by-division/${this.divisionId}/`);
-            console.log('Teams response:', response);
-            const data = await response.json();
-            console.log('Teams data:', data);
-            this.teams = data;
-            this.teamId = '';
-        } catch (error) {
-            console.error('Error fetching teams:', error);
-            this.teams = [];
-        }
-    },
-    
-    async fetchModalTeams() {
-        this.isLoading = true;
-        this.modalStatus = 'Loading teams...';
-        
-        try {
-            const response = await fetch(`/sportsSignUp/api/teams-by-league/${this.selectedLeagueId}/`);
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to fetch teams');
-            }
-            
-            this.modalTeams = data;
-            this.modalStatus = '';
-        } catch (error) {
-            this.modalStatus = `Error: ${error.message}`;
-            console.error('Error:', error);
-        } finally {
-            this.isLoading = false;
-        }
-    },
-    
-    async assignTeam(event) {
-        event.preventDefault();
-        const form = event.target;
-        const teamId = form.querySelector('#modalTeamSelect').value;
-        
-        if (!teamId) {
-            this.modalStatus = 'Please select a team.';
-            return;
-        }
-        
-        this.isLoading = true;
-        this.modalStatus = 'Assigning team...';
-        
-        try {
-            const response = await fetch(`/sportsSignUp/registrations/assign-team/${this.selectedPlayerId}/`, {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: new URLSearchParams({
-                    'team_id': teamId,
-                    'csrfmiddlewaretoken': document.querySelector('[name=csrfmiddlewaretoken]').value
-                })
+            const response = await fetch(`/sportsSignUp/api/registrations-by-league/${leagueId}/`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
             });
             
-            const data = await response.json();
-            
             if (!response.ok) {
-                throw new Error(data.error || 'Failed to assign team');
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            this.modalStatus = 'Team assigned successfully!';
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
+            const data = await response.json();
+            return Array.isArray(data) ? data : [];
         } catch (error) {
-            this.modalStatus = `Error: ${error.message}`;
-            console.error('Error:', error);
-        } finally {
-            this.isLoading = false;
+            console.error('Error fetching registrations:', error);
+            return [];
         }
-    },
-    async fetchDivisionAndTeams() {
-    if (!this.leagueId) {
-        this.divisions = [];
-        this.teams = [];
-        return;
     }
-    
-    try {
-        const response = await fetch(`/sportsSignUp/api/divisions-and-teams-by-league/${this.leagueId}/`);
+
+  // Filter and search functions
+  function filterRegistrations(registrations, { divisionId, teamId, searchQuery }) {
+    return registrations.filter(registration => {
+      const matchesDivision = !divisionId || registration.division_id === divisionId;
+      const matchesTeam = !teamId || registration.team_id === teamId;
+      
+      const searchTerms = searchQuery.toLowerCase().split(' ');
+      const searchableText = [
+        registration.player_name,
+        registration.parent_name,
+        registration.email,
+        registration.phone
+      ].join(' ').toLowerCase();
+      
+      const matchesSearch = !searchQuery || 
+        searchTerms.every(term => searchableText.includes(term));
+
+      return matchesDivision && matchesTeam && matchesSearch;
+    });
+  }
+  
+  async function assignTeamToPlayer(playerId, teamId) {
+      try {
+        const response = await apiPost(`/sportsSignUp/registrations/assign-team/${playerId}/`, {
+          team_id: teamId
+        });
         const data = await response.json();
-        console.log('League data:', data);
-        
-        // Extract just the division info for the divisions dropdown
-        this.divisions = data.map(division => ({
-            id: division.id,
-            name: division.name
-        }));
-        
-        // Flatten all teams from all divisions for the teams dropdown
-        this.teams = data.flatMap(division => division.teams);
-        
-        this.divisionId = '';
-        this.$refs.filterForm.submit();
-    } catch (error) {
-        console.error('Error fetching divisions and teams:', error);
-        this.divisions = [];
-        this.teams = [];
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to assign team');
+        }
+        return data;
+      } catch (error) {
+        throw new Error(`Error: ${error.message}`);
+      }
     }
-},
-}">
-    <div class="mb-8">
-        <form id="filterForm" method="get" class="space-y-4" x-ref="filterForm">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <!-- League Filter -->
-                <div>
-                    <label for="leagueSelect" class="block text-sm font-medium text-gray-700">League</label>
-                    <select id="leagueSelect" 
-                            name="league" 
-                            x-model="leagueId"
-                            @change="fetchDivisionAndTeams()"
-                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                        <option value="">All Leagues</option>
-                        {% for league in leagues %}
-                            <option value="{{ league.id }}">{{ league.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-    
-                <!-- Division Filter -->
-                <div>
-                    <label for="divisionSelect" class="block text-sm font-medium text-gray-700">Division</label>
-                    <select id="divisionSelect" 
-                            name="division" 
-                            x-model="divisionId"
-                            @change="$refs.filterForm.submit()"
-                            :disabled="!leagueId"
-                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                        <option value="">All Divisions</option>
-                        <template x-for="division in divisions" :key="division.id">
-                            <option :value="division.id" x-text="division.name"></option>
-                        </template>
-                    </select>
-                </div>
-    
-                <!-- Team Filter -->
-                <div>
-                    <label for="teamSelect" class="block text-sm font-medium text-gray-700">Team</label>
-                    <select id="teamSelect" 
-                            name="team" 
-                            x-model="teamId"
-                            @change="$refs.filterForm.submit()"
-                            :disabled="!leagueId"
-                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                        <option value="">All Teams</option>
-                        <template x-for="team in teams" :key="team.id">
-                            <option :value="team.id" x-text="team.name"></option>
-                        </template>
-                    </select>
-                </div>
-    
-                <!-- Search Box -->
-                <div>
-                    <label for="searchInput" class="block text-sm font-medium text-gray-700">Search</label>
-                    <input type="text" 
-                           x-ref="searchInput" 
-                           name="search" 
-                           x-model="searchQuery"
-                           @input="debounceSearch($event)"
-                           placeholder="Search players..."
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                </div>
-            </div>
-        </form>
-    </div>
+    document.addEventListener('alpine:init', () => {
+    Alpine.data('registrationManager', () => ({
+        // State variables
+        leagueId: '{{ selected_league }}',
+        divisionId: '',
+        teamId: '',
+        searchQuery: '',
+        divisions: [],
+        teams: [],
+        allRegistrations: [],
+        filteredRegistrations: [],
+        showModal: false,
+        selectedPlayerId: null,
+        selectedLeagueId: null,
+        modalTeams: [],
+        modalStatus: '',
+        isLoading: false,
+        searchTimeout: null,
 
-    <!-- Statistics -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <!-- Statistics cards remain the same -->
-        <div class="bg-white p-4 rounded-lg shadow">
-            <div class="text-xl font-bold">{{ stats.total_registrations }}</div>
-            <div class="text-gray-600">Total Registrations</div>
+        // Initialization
+        async init() {
+            if (this.leagueId) {
+                await this.loadLeagueData();
+            }
+        },
+
+        // Data loading methods
+        async loadLeagueData() {
+            this.isLoading = true;
+            try {
+                // Load all data for the league
+                const response = await fetchRegistrationsByLeague(this.leagueId);
+                this.allRegistrations = Array.isArray(response) ? response : [];
+                
+                // Extract unique divisions and teams
+                const uniqueDivisions = new Set();
+                const uniqueTeams = new Set();
+                
+                this.allRegistrations.forEach(reg => {
+                    if (reg.division_id && reg.division_name) {
+                        uniqueDivisions.add(JSON.stringify({
+                            id: reg.division_id,
+                            name: reg.division_name
+                        }));
+                    }
+                    if (reg.team_id && reg.team_name) {
+                        uniqueTeams.add(JSON.stringify({
+                            id: reg.team_id,
+                            name: reg.team_name,
+                            division_id: reg.team_division_id
+                        }));
+                    }
+                });
+
+                this.divisions = Array.from(uniqueDivisions).map(JSON.parse)
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                this.teams = Array.from(uniqueTeams).map(JSON.parse)
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                
+                // Initial filtering
+                this.applyFilters();
+            } catch (error) {
+                console.error('Error loading league data:', error);
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        // Filter methods
+        applyFilters() {
+            const filtered = this.allRegistrations.filter(reg => {
+                // Division filter
+                const matchesDivision = !this.divisionId || 
+                    reg.division_id.toString() === this.divisionId.toString();
+
+                // Team filter
+                const matchesTeam = !this.teamId || 
+                    (reg.team_id && reg.team_id.toString() === this.teamId.toString());
+
+                // Search filter
+                const searchTerms = this.searchQuery.toLowerCase().split(' ');
+                const searchableText = [
+                    reg.player_name,
+                    reg.parent_name,
+                    reg.email,
+                    reg.phone
+                ].filter(Boolean).join(' ').toLowerCase();
+
+                const matchesSearch = !this.searchQuery || 
+                    searchTerms.every(term => searchableText.includes(term));
+
+                return matchesDivision && matchesTeam && matchesSearch;
+            });
+
+            this.filteredRegistrations = filtered;
+        },
+
+        handleSearch() {
+            clearTimeout(this.searchTimeout);
+            this.searchTimeout = setTimeout(() => {
+                this.applyFilters();
+            }, 300);
+        },
+
+        handleDivisionChange() {
+            this.teamId = ''; // Reset team selection when division changes
+            this.applyFilters();
+        },
+
+        handleTeamChange() {
+            this.applyFilters();
+        },
+
+        // Computed properties
+        get statistics() {
+            const registrations = Array.isArray(this.allRegistrations) ? this.allRegistrations : [];
+            const total = registrations.length;
+            const freeAgents = registrations.filter(r => !r.team_id).length;
+            
+            return {
+                totalRegistrations: total,
+                freeAgents: freeAgents,
+                divisionCount: this.divisions.length,
+                teamCount: this.teams.length
+            };
+        },
+
+        get groupedRegistrations() {
+            const registrations = this.filteredRegistrations;
+
+            // First, separate free agents and team members
+            const freeAgents = registrations.filter(r => !r.team_id);
+            const teamMembers = registrations.filter(r => r.team_id);
+
+            // Group free agents by division
+            const freeAgentsByDivision = Object.values(_.groupBy(freeAgents, 'division_id'))
+                .map(divisionRegistrations => ({
+                    id: divisionRegistrations[0].division_id,
+                    name: divisionRegistrations[0].division_name,
+                    registrations: divisionRegistrations
+                }))
+                .filter(d => d.registrations.length > 0)
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            // Group team members by division and team
+            const teamsByDivision = Object.values(_.groupBy(teamMembers, 'division_id'))
+                .map(divisionRegistrations => {
+                    const teamGroups = _.groupBy(divisionRegistrations, 'team_id');
+                    return {
+                        id: divisionRegistrations[0].division_id,
+                        name: divisionRegistrations[0].division_name,
+                        teams: Object.values(teamGroups).map(teamRegistrations => ({
+                            id: teamRegistrations[0].team_id,
+                            name: teamRegistrations[0].team_name,
+                            registrations: teamRegistrations
+                        })).sort((a, b) => a.name.localeCompare(b.name))
+                    };
+                })
+                .filter(d => d.teams.length > 0)
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            return {
+                freeAgents: freeAgentsByDivision,
+                teams: teamsByDivision
+            };
+        },
+
+        get loadingMessage() {
+            return this.modalStatus || 'Loading registration data...';
+        },
+
+        // Modal methods
+        async openAssignModal(registration) {
+            this.selectedPlayerId = registration.player_id;
+            this.selectedLeagueId = this.leagueId;
+            this.modalStatus = '';
+            
+            // Get available teams for the player's division
+            this.modalTeams = this.divisions.map(division => ({
+                id: division.id,
+                name: division.name,
+                teams: this.teams.filter(team => team.division_id === division.id)
+            })).filter(division => division.teams.length > 0);
+            
+            this.showModal = true;
+        },
+
+        async assignTeam(event) {
+            const formData = new FormData(event.target);
+            const teamId = formData.get('team_id');
+            
+            if (!teamId) {
+                this.modalStatus = 'Error: Please select a team';
+                return;
+            }
+            
+            this.isLoading = true;
+            this.modalStatus = 'Loading...';
+            
+            try {
+                await assignTeamToPlayer(this.selectedPlayerId, teamId);
+                this.modalStatus = 'Successfully assigned team';
+                
+                // Reload league data to refresh the view
+                await this.loadLeagueData();
+                
+                // Close modal after short delay
+                setTimeout(() => {
+                    this.showModal = false;
+                    this.selectedPlayerId = null;
+                    this.modalStatus = '';
+                }, 1000);
+            } catch (error) {
+                this.modalStatus = `Error: ${error.message}`;
+            } finally {
+                this.isLoading = false;
+            }
+        }
+    }));
+});
+  </script>
+<div x-data="registrationManager" x-init="$nextTick(() => debug())">
+    <!-- Filter Section -->
+<div class="mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- League Filter -->
+        <div>
+            <label for="leagueSelect" class="block text-sm font-medium text-gray-700">League</label>
+            <select id="leagueSelect" 
+                    x-model="leagueId"
+                    @change="loadLeagueData()"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                <option value="">All Leagues</option>
+                {% for league in leagues %}
+                    <option value="{{ league.id }}">{{ league.name }}</option>
+                {% endfor %}
+            </select>
         </div>
-        <div class="bg-white p-4 rounded-lg shadow">
-            <div class="text-xl font-bold">{{ stats.total_free_agents }}</div>
-            <div class="text-gray-600">Free Agents</div>
+
+        <!-- Division Filter -->
+        <div>
+            <label for="divisionSelect" class="block text-sm font-medium text-gray-700">Division</label>
+            <select id="divisionSelect" 
+                    x-model="divisionId"
+                    @change="handleDivisionChange()"
+                    :disabled="!leagueId"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                <option value="">All Divisions</option>
+                <template x-for="division in divisions" :key="division.id">
+                    <option :value="division.id" x-text="division.name"></option>
+                </template>
+            </select>
         </div>
-        <div class="bg-white p-4 rounded-lg shadow">
-            <div class="text-xl font-bold">{{ stats.divisions_count }}</div>
-            <div class="text-gray-600">Divisions</div>
+
+        <!-- Team Filter -->
+        <div>
+            <label for="teamSelect" class="block text-sm font-medium text-gray-700">Team</label>
+            <select id="teamSelect" 
+                    x-model="teamId"
+                    @change="handleTeamChange()"
+                    :disabled="!leagueId"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                <option value="">All Teams</option>
+                <template x-for="team in teams" :key="team.id">
+                    <option :value="team.id" x-text="team.name"></option>
+                </template>
+            </select>
         </div>
-        <div class="bg-white p-4 rounded-lg shadow">
-            <div class="text-xl font-bold">{{ stats.teams_count }}</div>
-            <div class="text-gray-600">Teams</div>
+
+        <!-- Search Box -->
+        <div>
+            <label for="searchInput" class="block text-sm font-medium text-gray-700">Search</label>
+            <input type="text" 
+                   x-ref="searchInput" 
+                   x-model="searchQuery"
+                   @input="handleSearch()"
+                   placeholder="Search players..."
+                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
         </div>
     </div>
+</div>
 
+<!-- Statistics -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="text-xl font-bold" x-text="statistics.totalRegistrations">0</div>
+        <div class="text-gray-600">Total Registrations</div>
+    </div>
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="text-xl font-bold" x-text="statistics.freeAgents">0</div>
+        <div class="text-gray-600">Free Agents</div>
+    </div>
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="text-xl font-bold" x-text="divisions.length">0</div>
+        <div class="text-gray-600">Divisions</div>
+    </div>
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="text-xl font-bold" x-text="teams.length">0</div>
+        <div class="text-gray-600">Teams</div>
+    </div>
+</div>
+
+<!-- Loading State -->
+<div x-show="isLoading" class="text-center py-8">
+    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+    <p class="mt-2 text-gray-600" x-text="loadingMessage">Loading...</p>
+</div>
+
+<!-- Content Section (shown when not loading) -->
+<div x-show="!isLoading">
     <!-- Free Agents Section -->
-    {% for division, registrations in free_agents.items %}
-    {% if registrations %}
-        <div class="mb-8">
-            <h2 class="text-2xl font-bold mb-4">Free Agents - {{ division.name }}</h2>
-            <!-- Table structure remains the same, but add Alpine.js for team assignment -->
+    <template x-for="(divisionData, index) in groupedRegistrations.freeAgents" :key="index">
+        <div class="mb-8" x-show="divisionData.registrations.length > 0">
+            <h2 class="text-2xl font-bold mb-4" x-text="'Free Agents - ' + divisionData.name"></h2>
             <div class="bg-white rounded-lg shadow overflow-hidden">
                 <table class="min-w-full">
-                    <!-- Table header remains the same -->
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent Name</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member Status</th>
@@ -274,104 +411,104 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        {% for registration in registrations %}
+                        <template x-for="registration in divisionData.registrations" :key="registration.id">
                             <tr>
-                                <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.get_full_name }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.email }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap" x-text="registration.player_name"></td>
+                                <td class="px-6 py-4 whitespace-nowrap" x-text="registration.parent_name"></td>
+                                <td class="px-6 py-4 whitespace-nowrap" x-text="registration.email"></td>
+                                <td class="px-6 py-4 whitespace-nowrap" x-text="registration.phone"></td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {% if registration.player.is_member %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
-                                        {% if registration.player.is_member %}Member{% else %}Non-Member{% endif %}
-                                    </span>
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                          :class="registration.is_member ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                                          x-text="registration.is_member ? 'Member' : 'Non-Member'"></span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                        {% if registration.payment_status == 'paid' %}bg-green-100 text-green-800
-                                        {% elif registration.payment_status == 'pending' %}bg-yellow-100 text-yellow-800
-                                        {% else %}bg-red-100 text-red-800{% endif %}">
-                                        {{ registration.payment_status|title }}
-                                    </span>
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                          :class="{
+                                              'bg-green-100 text-green-800': registration.payment_status === 'paid',
+                                              'bg-yellow-100 text-yellow-800': registration.payment_status === 'pending',
+                                              'bg-red-100 text-red-800': registration.payment_status === 'unpaid'
+                                          }"
+                                          x-text="registration.payment_status"></span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <a href="#" 
-                                       @click.prevent="selectedPlayerId = '{{ registration.player.id }}'; 
-                                                     selectedLeagueId = '{{ registration.league.id }}';
-                                                     showModal = true;
-                                                     fetchModalTeams()"
+                                       @click.prevent="openAssignModal(registration)"
                                        class="text-indigo-600 hover:text-indigo-900">
                                         Assign Team
                                     </a>
                                 </td>
                             </tr>
-                        {% endfor %}
+                        </template>
                     </tbody>
                 </table>
             </div>
         </div>
-    {% endif %}
-    {% endfor %}
+    </template>
 
     <!-- Teams by Division Section -->
-    {% for division, teams in organized_data.items %}
-    <div class="mb-8">
-        <h2 class="text-2xl font-bold mb-4">{{ division.name }}</h2>
-        {% if teams %}
-            {% for team, registrations in teams.items %}
-                <div class="mb-6">
-                    <h3 class="text-xl font-semibold mb-2">{{ team.name }}</h3>
-                    <div class="bg-white rounded-lg shadow overflow-hidden">
-                        <table class="min-w-full">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member Status</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                {% for registration in registrations %}
+    <template x-for="(divisionData, index) in groupedRegistrations.teams" :key="index">
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold mb-4" x-text="divisionData.name"></h2>
+            <template x-if="Object.keys(divisionData.teams).length">
+                <template x-for="(teamData, teamIndex) in divisionData.teams" :key="teamIndex">
+                    <div class="mb-6">
+                        <h3 class="text-xl font-semibold mb-2" x-text="teamData.name"></h3>
+                        <div class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="min-w-full">
+                                <thead class="bg-gray-50">
                                     <tr>
-                                        <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.get_full_name }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.email }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">{{ registration.player.phone_number }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {% if registration.player.is_member %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
-                                                {% if registration.player.is_member %}Member{% else %}Non-Member{% endif %}
-                                            </span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                                {% if registration.payment_status == 'paid' %}bg-green-100 text-green-800
-                                                {% elif registration.payment_status == 'pending' %}bg-yellow-100 text-yellow-800
-                                                {% else %}bg-red-100 text-red-800{% endif %}">
-                                                {{ registration.payment_status|title }}
-                                            </span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <a href="#" 
-                                               @click.prevent="selectedPlayerId = '{{ registration.player.id }}'; 
-                                                             selectedLeagueId = '{{ registration.league.id }}';
-                                                             showModal = true;
-                                                             fetchModalTeams()"
-                                               class="text-indigo-600 hover:text-indigo-900">
-                                                Change Team
-                                            </a>
-                                        </td>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent Name</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                     </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="registration in teamData.registrations" :key="registration.id">
+                                        <tr>
+                                            <td class="px-6 py-4 whitespace-nowrap" x-text="registration.player_name"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap" x-text="registration.parent_name"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap" x-text="registration.email"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap" x-text="registration.phone"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                      :class="registration.is_member ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                                                      x-text="registration.is_member ? 'Member' : 'Non-Member'"></span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                      :class="{
+                                                          'bg-green-100 text-green-800': registration.payment_status === 'paid',
+                                                          'bg-yellow-100 text-yellow-800': registration.payment_status === 'pending',
+                                                          'bg-red-100 text-red-800': registration.payment_status === 'unpaid'
+                                                      }"
+                                                      x-text="registration.payment_status"></span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                <a href="#" 
+                                                   @click.prevent="openAssignModal(registration)"
+                                                   class="text-indigo-600 hover:text-indigo-900">
+                                                    Change Team
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
-            {% endfor %}
-        {% else %}
-            <p class="text-gray-500">No teams in this division.</p>
-        {% endif %}
-    </div>
-    {% endfor %}
+                </template>
+            </template>
+            <template x-if="!Object.keys(divisionData.teams).length">
+                <p class="text-gray-500">No teams in this division.</p>
+            </template>
+        </div>
+    </template>
+</div>
 
     <!-- Team Assignment Modal -->
     <div x-show="showModal"
@@ -428,4 +565,7 @@
         </div>
     </div>
 </div>
+<script>
+
+</script>
 {% endblock %}

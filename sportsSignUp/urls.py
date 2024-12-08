@@ -29,6 +29,10 @@ urlpatterns = [
         views.get_teams_by_league, 
         name='get_teams_by_league'),
 
+     path('api/registrations-by-league/<int:league_id>/',
+          views.get_registrations_by_league,
+         name='get_registrations_by_league'),
+
     path('registrations/assign-team/<int:player_id>/', 
         views.assign_team, 
         name='assign_team'),

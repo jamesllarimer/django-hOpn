@@ -8,7 +8,8 @@
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Add this in your base.html template's head section -->
-<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
     
     {% block extra_head %}{% endblock %}
 </head>
@@ -25,7 +26,7 @@
                 <a href="{% url 'sportsSignUp:index' %}" class="hover:text-blue-200 transition duration-300">
                     Home
                 </a>
-                <a href="{% url 'sportsSignUp:active_leagues' %}" class="hover:text-blue-200 transition duration-300">
+                <a href="{% url 'sportsSignUp:league_list' %}" class="hover:text-blue-200 transition duration-300">
                     Active Leagues
                 </a>
             </div>
@@ -46,7 +47,7 @@
                 <a href="{% url 'sportsSignUp:index' %}" class="block py-2 hover:bg-blue-600 rounded">
                     Home
                 </a>
-                <a href="{% url 'sportsSignUp:active_leagues' %}" class="block py-2 hover:bg-blue-600 rounded">
+                <a href="{% url 'sportsSignUp:league_list' %}" class="block py-2 hover:bg-blue-600 rounded">
                     Active Leagues
                 </a>
                 {% if user.is_authenticated and user.is_admin %}
