@@ -5,8 +5,9 @@ from urllib import request
 from django import forms
 from django.conf import settings
 from django.http import HttpResponse
+from django.views import View
 from django.views.generic.edit import UpdateView
-from django.views.generic import ListView, CreateView, FormView
+from django.views.generic import ListView, CreateView, FormView, DetailView, TemplateView
 from datetime import datetime 
 from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -19,7 +20,7 @@ from sportsSignUp.stripe_utils import get_stripe_price_id
 from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, TeamSignupForm
 from django.contrib import messages
 from django.utils import timezone
-from .models import Sport, Team, Player, Division, League, Registration
+from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamInvitation
 import stripe
 from django.views.generic import ListView
 from django.contrib.auth.mixins import UserPassesTestMixin
@@ -185,6 +186,13 @@ class LeagueListView(ListView):
             
         return sports
 
+class FreeAgentRegistrationSuccessView(LoginRequiredMixin, TemplateView):
+    template_name = 'leagues/free_agent_registration_success.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        return context
+
 class FreeAgentRegistrationView(LoginRequiredMixin, FormView):
     template_name = 'leagues/free_agent_registration.html'
     form_class = FreeAgentRegistrationForm
@@ -196,59 +204,198 @@ class FreeAgentRegistrationView(LoginRequiredMixin, FormView):
         return kwargs
 
     def form_valid(self, form):
-        league_id = self.kwargs['league_id']
-        league = get_object_or_404(League, id=league_id)
-        today = timezone.now().date()
+        # Create the free agent profile
+        free_agent = form.save(commit=False)
+        free_agent.user = self.request.user
+        free_agent.league = self.league
+        free_agent.save()
         
-        # Get the appropriate price ID
-        price_id = 'price_1Nj6w4A4CECRU4aHIDEv90eE'
-        line_items = [{
-            'price': price_id,
-            'quantity': 1,
-        }]
-        # If you have a fixed price ID for the late fee in Stripe
-        is_late = True
-        if is_late:
-            line_items.append({
-                'price': 'price_1QR3hBA4CECRU4aHgeNYJLTf',  # Your Stripe Price ID for the late fee
-                'quantity': 1
-        })
-        if not price_id:
-            messages.error(self.request, "Unable to find appropriate price. Please contact support.")
-            return self.form_invalid(form)
+        messages.success(self.request, "You have been successfully registered as a free agent!")
+        return redirect('leagues:free_agent_registration_success')
+class InviteFreeAgentView(LoginRequiredMixin, View):
+    def post(self, request, free_agent_id):
+        free_agent = get_object_or_404(FreeAgent, id=free_agent_id)
+        team = request.user.team  # Assuming user has a team
+        
+        # Create invitation
+        TeamInvitation.objects.create(
+            free_agent=free_agent,
+            team=team
+        )
+        
+        # Update free agent status
+        free_agent.status = 'INVITED'
+        free_agent.save()
+        
+        # Maybe send an email notification here
+        
+        return JsonResponse({'status': 'success'})
+class RemovePlayerView(LoginRequiredMixin, UserPassesTestMixin, View):
+    def test_func(self):
+        team = Team.objects.get(players=self.kwargs['player_id'])
+        return self.request.user == team.captain
+        
+    def post(self, request, player_id):
+        player = get_object_or_404(CustomUser, id=player_id)
+        team = Team.objects.get(players=player)
+        team.players.remove(player)
+        return JsonResponse({'status': 'success'})
+
+class CancelInvitationView(LoginRequiredMixin, UserPassesTestMixin, View):
+    def test_func(self):
+        invitation = get_object_or_404(TeamInvitation, id=self.kwargs['invitation_id'])
+        return self.request.user == invitation.team.captain
+        
+    def post(self, request, invitation_id):
+        invitation = get_object_or_404(TeamInvitation, id=invitation_id)
+        invitation.status = 'CANCELLED'
+        invitation.save()
+        return JsonResponse({'status': 'success'})
+class AcceptInvitationView(LoginRequiredMixin, View):
+    def post(self, request, invitation_id):
+        invitation = get_object_or_404(TeamInvitation, id=invitation_id)
+        
+        # Create Stripe checkout session here
         try:
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
-                line_items=line_items,
+                line_items=[{
+                    'price': 'price_1Nj6w4A4CECRU4aHIDEv90eE',
+                    'quantity': 1,
+                }],
                 mode='payment',
-                success_url=self.request.build_absolute_uri(
-                    reverse('sportsSignUp:registration_success')  
+                success_url=request.build_absolute_uri(
+                    reverse('sportsSignUp:invitation_payment_success', kwargs={'invitation_id': invitation_id})
                 ) + "?session_id={CHECKOUT_SESSION_ID}",
-                cancel_url=self.request.build_absolute_uri(
-                    reverse('sportsSignUp:registration_cancel')  
+                cancel_url=request.build_absolute_uri(
+                    reverse('sportsSignUp:invitation_payment_cancel', kwargs={'invitation_id': invitation_id})
                 ),
                 metadata={
-                    'league_id': league_id,
-                    'division_id': str(form.cleaned_data['division'].id),
-                    'player_data': json.dumps({
-                        'first_name': form.cleaned_data['first_name'],
-                        'last_name': form.cleaned_data['last_name'],
-                        'email': form.cleaned_data['email'],
-                        'phone_number': form.cleaned_data['phone_number'],
-                        'parent_name': form.cleaned_data.get('parent_name', ''),
-                        'date_of_birth': str(form.cleaned_data['date_of_birth']),
-                        'membership_number': form.cleaned_data['membership_number'],
-                        'is_member': form.cleaned_data['is_member'],
-                        'notes': form.cleaned_data.get('notes', ''),
-                    })
+                    'invitation_id': invitation_id,
+                    'team_id': str(invitation.team.id),
+                    'free_agent_id': str(invitation.free_agent.id)
                 }
             )
             return redirect(checkout_session.url)
             
         except Exception as e:
-            messages.error(self.request, f"Payment error: {str(e)}")
-            return self.form_invalid(form)
+            messages.error(request, f"Payment error: {str(e)}")
+            return redirect('sportsSignUp:invitation_detail', invitation_id=invitation_id)
+        
+class FreeAgentPoolView(LoginRequiredMixin, UserPassesTestMixin, ListView):
+    model = FreeAgent
+    template_name = 'leagues/free_agent_pool.html'
+    context_object_name = 'free_agents'
+    
+    def test_func(self):
+        return self.request.user.is_team_captain()
+    
+    def get_queryset(self):
+        # Get the league from the URL
+        league_id = self.kwargs.get('league_id')
+        
+        # Filter free agents by league and available status
+        queryset = FreeAgent.objects.filter(
+            league_id=league_id,
+            status='AVAILABLE'
+        ).order_by('-created_at')
+        
+        # Apply filters from query parameters
+        division = self.request.GET.get('division')
+        if division:
+            queryset = queryset.filter(division_id=division)
+            
+        age_group = self.request.GET.get('age_group')
+        if age_group:
+            # You might want to implement age group logic based on date_of_birth
+            pass
+            
+        return queryset
+        
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        league = get_object_or_404(League, id=self.kwargs.get('league_id'))
+        context['league'] = league
+        context['divisions'] = league.available_divisions.all()
+        return context
+    
+class FreeAgentDetailView(LoginRequiredMixin, UserPassesTestMixin, View):
+    def test_func(self):
+        return hasattr(self.request.user, 'team') and self.request.user.team.is_captain(self.request.user)
+        
+    def get(self, request, agent_id):
+        agent = get_object_or_404(FreeAgent, id=agent_id)
+        data = {
+            'id': agent.id,
+            'first_name': agent.first_name,
+            'last_name': agent.last_name,
+            'division': agent.division.name,
+            'date_of_birth': agent.date_of_birth.strftime('%B %d, %Y'),
+            'is_member': agent.is_member,
+            'notes': agent.notes
+        }
+        return JsonResponse(data)
+class TeamDashboardView(LoginRequiredMixin, TemplateView):
+    template_name = 'teams/dashboard.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        
+        # Get teams where user is captain (through TeamCaptain)
+        teams_as_captain = Team.objects.filter(captain__user=user)
+        
+        # In your case, you might want to also get teams where the user's email
+        # matches a TeamCaptain email but hasn't been linked yet
+        potential_captain_teams = Team.objects.filter(
+            captain__email=user.email,
+            captain__user__isnull=True
+        )
+        
+        context.update({
+            'teams_as_captain': teams_as_captain,
+            'potential_captain_teams': potential_captain_teams,
+        })
+        return context
 
+class TeamDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
+    model = Team
+    template_name = 'teams/team_detail.html'
+    context_object_name = 'team'
+    
+    def test_func(self):
+        team = self.get_object()
+        return (team.captain.user == self.request.user or 
+                (team.captain.email == self.request.user.email and team.captain.user is None))
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        team = self.get_object()
+        is_captain = (team.captain.user == self.request.user or 
+                     (team.captain.email == self.request.user.email and team.captain.user is None))
+            
+        context.update({
+            'is_captain': is_captain,
+            'league': team.league,
+            'pending_invitations': TeamInvitation.objects.filter(
+                team=team, 
+                status='PENDING'
+            ) if is_captain else None,
+        })
+        return context
+class ClaimTeamCaptainView(LoginRequiredMixin, View):
+    def post(self, request, team_id):
+        team = get_object_or_404(Team, id=team_id)
+        
+        # Check if this user's email matches the captain's email
+        if team.captain.email == request.user.email and team.captain.user is None:
+            team.captain.user = request.user
+            team.captain.save()
+            messages.success(request, "You have successfully claimed this team.")
+        else:
+            messages.error(request, "You are not authorized to claim this team.")
+            
+        return redirect('sportsSignUp:team_dashboard')
 def registration_success(request):
     session_id = request.GET.get('session_id')
     if not session_id:

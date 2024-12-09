@@ -1,3 +1,4 @@
+{% load team_tags  %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,6 +30,13 @@
                 <a href="{% url 'sportsSignUp:league_list' %}" class="hover:text-blue-200 transition duration-300">
                     Active Leagues
                 </a>
+                {% if user.is_authenticated %}
+                {% if user.team_captains.exists or user.email|teamcaptain_email_exists %}
+                    <a href="{% url 'sportsSignUp:team_dashboard' %}" class="hover:text-blue-200 transition duration-300">
+                        Team Dashboard
+                    </a>
+                {% endif %}
+            {% endif %}
             </div>
             
             <!-- Mobile Menu Button -->

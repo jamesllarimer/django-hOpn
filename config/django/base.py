@@ -147,6 +147,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # For developm
 # EMAIL_HOST_PASSWORD = 'your-email-password'
 
 # Login/Logout settings
-LOGIN_REDIRECT_URL = ''  # Change this to your home page URL name
+LOGIN_REDIRECT_URL = 'sportsSignUp/'  # Change this to your home page URL name
 LOGOUT_REDIRECT_URL = 'login'
 LOGIN_URL = 'login'
+

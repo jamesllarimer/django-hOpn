@@ -39,6 +39,11 @@ class CustomUser(AbstractUser):
     
     def is_admin(self):
         return self.user_type == 'admin'
+    def is_team_captain(self):
+        return (
+            self.team_captains.exists() or  # Using the related_name from your model
+            TeamCaptain.objects.filter(email=self.email, user__isnull=True).exists()
+        )
 
 class TeamCaptain(models.Model):
     """
@@ -298,3 +303,55 @@ class StripePrice(models.Model):
         if self.recurring:
             return f"{self.currency} {amount} / {self.recurring_interval}"
         return f"{self.currency} {amount} (one-time)"
+    
+
+class FreeAgent(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='free_agent_profiles')
+    league = models.ForeignKey(League, on_delete=models.CASCADE, related_name='free_agents')
+    division = models.ForeignKey(Division, on_delete=models.CASCADE, related_name='free_agents')
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    email = models.EmailField()
+    phone_number = models.CharField(max_length=20)
+    date_of_birth = models.DateField()
+    membership_number = models.CharField(max_length=100)
+    is_member = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('AVAILABLE', 'Available'),
+            ('INVITED', 'Invited'),
+            ('JOINED', 'Joined'),
+            ('INACTIVE', 'Inactive')
+        ],
+        default='AVAILABLE'
+    )
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} - {self.league.name}"
+
+    class Meta:
+        unique_together = ['user', 'league']  # One free agent profile per league per user
+
+
+class TeamInvitation(models.Model):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='sent_invitations')
+    free_agent = models.ForeignKey(FreeAgent, on_delete=models.CASCADE, related_name='received_invitations')
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('PENDING', 'Pending'),
+            ('ACCEPTED', 'Accepted'),
+            ('DECLINED', 'Declined'),
+            ('EXPIRED', 'Expired')
+        ],
+        default='PENDING'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    response_at = models.DateTimeField(null=True, blank=True)
+    message = models.TextField(blank=True)  # Optional message from team captain
+
+    class Meta:
+        unique_together = ['team', 'free_agent']  # Prevent duplicate invitations
