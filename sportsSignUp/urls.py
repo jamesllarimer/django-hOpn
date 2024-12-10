@@ -6,7 +6,10 @@ app_name = "sportsSignUp"
 urlpatterns = [
     path("", views.index, name="index"),
     path('active-leagues/', views.active_leagues, name='active_leagues'),
-    path('signup/', views.SignUpView.as_view(), name='signup'),
+    path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
+    path('signup/', views.SignUpView.as_view(), name='signup'),  
+
     path('leagues/', views.LeagueListView.as_view(), name='league_list'),
 
     path('leagues/<int:league_id>/register/free-agent/', 
@@ -24,6 +27,13 @@ urlpatterns = [
     path('registrations/manage/', 
         views.RegistrationManagementView.as_view(), 
         name='registration_management'),
+
+    path('my-free-agent-registrations/',
+        views.MyFreeAgentRegistrationsView.as_view(),
+        name='my_free_agent_registrations'),
+    path('invitation/<int:invitation_id>/decline/',
+        views.DeclineInvitationView.as_view(),
+        name='decline_invitation'),
 
     path('api/teams-by-league/<int:league_id>/', 
         views.get_teams_by_league, 
@@ -68,8 +78,11 @@ urlpatterns = [
     path('teams/signup/<str:signup_code>/', 
          views.team_signup_page, 
          name='team_signup'),
+
     path('free-agent/register/<int:league_id>/', views.FreeAgentRegistrationView.as_view(), name='free_agent_registration'),
     path('free-agent/invite/<int:free_agent_id>/', views.InviteFreeAgentView.as_view(), name='invite_free_agent'),
+    path('teams/sent-invitations/', views.SentInvitationsView.as_view(), name='sent_invitations'),
+
     path('invitation/<int:invitation_id>/accept/', views.AcceptInvitationView.as_view(), name='accept_invitation'),
     path('league/<int:league_id>/free-agents/', views.FreeAgentPoolView.as_view(), name='free_agent_pool'),
     path('free-agent/<int:agent_id>/details/', views.FreeAgentDetailView.as_view(), name='free_agent_details'),

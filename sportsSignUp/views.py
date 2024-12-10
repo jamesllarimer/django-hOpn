@@ -20,7 +20,7 @@ from sportsSignUp.stripe_utils import get_stripe_price_id
 from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, TeamSignupForm
 from django.contrib import messages
 from django.utils import timezone
-from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamInvitation
+from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamInvitation, TeamInvitationNotification
 import stripe
 from django.views.generic import ListView
 from django.contrib.auth.mixins import UserPassesTestMixin
@@ -211,25 +211,193 @@ class FreeAgentRegistrationView(LoginRequiredMixin, FormView):
         free_agent.save()
         
         messages.success(self.request, "You have been successfully registered as a free agent!")
-        return redirect('leagues:free_agent_registration_success')
+        return redirect('sportsSignUp:free_agent_registration_success')
+    
+class MyFreeAgentRegistrationsView(LoginRequiredMixin, ListView):
+    template_name = 'leagues/my_free_agent_registrations.html'
+    context_object_name = 'registrations'
+    
+    def get_queryset(self):
+        return FreeAgent.objects.filter(
+            user=self.request.user
+        ).select_related(
+            'league',
+            'division'
+        ).order_by('-created_at')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        registrations = self.get_queryset()
+        
+        # Group registrations by league
+        leagues_data = defaultdict(list)
+        for registration in registrations:
+            leagues_data[registration.league].append(registration)
+            
+        context['leagues_data'] = dict(leagues_data)
+        
+        # Get all received invitations
+        context['pending_invitations'] = TeamInvitation.objects.filter(
+            free_agent__user=self.request.user,
+            status='PENDING'
+        ).select_related(
+            'team',
+            'team__league',
+            'team__division',
+            'team__captain'
+        )
+
+        context['all_invitations'] = TeamInvitation.objects.filter(
+            free_agent__user=self.request.user
+        ).select_related(
+            'team',
+            'team__league',
+            'team__division',
+            'team__captain'
+        ).order_by('-created_at')
+        
+        return context
+class DeclineInvitationView(LoginRequiredMixin, View):
+    def post(self, request, invitation_id):
+        try:
+            # Get invitation and verify ownership
+            invitation = get_object_or_404(TeamInvitation, 
+                id=invitation_id,
+                free_agent__user=request.user,
+                status='PENDING'
+            )
+            
+            # Update invitation status
+            invitation.status = 'DECLINED'
+            invitation.response_at = timezone.now()
+            invitation.save()
+            
+            # Update free agent status back to available
+            invitation.free_agent.status = 'AVAILABLE'
+            invitation.free_agent.save()
+            
+            messages.success(request, f"You have declined the invitation from {invitation.team.name}.")
+            
+        except TeamInvitation.DoesNotExist:
+            messages.error(request, "Invitation not found or already processed.")
+        except Exception as e:
+            messages.error(request, f"Error processing invitation: {str(e)}")
+        
+        return redirect('sportsSignUp:my_free_agent_registrations')    
 class InviteFreeAgentView(LoginRequiredMixin, View):
     def post(self, request, free_agent_id):
+        # Get the free agent
         free_agent = get_object_or_404(FreeAgent, id=free_agent_id)
-        team = request.user.team  # Assuming user has a team
         
-        # Create invitation
-        TeamInvitation.objects.create(
-            free_agent=free_agent,
-            team=team
+        # First, check if the user is a captain
+        if not request.user.is_team_captain():
+            return JsonResponse({
+                'status': 'error',
+                'message': 'You must be a team captain to invite free agents'
+            }, status=403)
+            
+        # Get the team(s) where this user is captain
+        captained_teams = Team.objects.filter(
+            captain__user=request.user,
+            league=free_agent.league  # Make sure the team is in the same league
         )
         
-        # Update free agent status
-        free_agent.status = 'INVITED'
-        free_agent.save()
+        if not captained_teams.exists():
+            return JsonResponse({
+                'status': 'error',
+                'message': 'No team found in this league where you are captain'
+            }, status=400)
         
-        # Maybe send an email notification here
+        # Use the first team if there are multiple (you might want to handle this differently)
+        team = captained_teams.first()
         
-        return JsonResponse({'status': 'success'})
+        # Check if an invitation already exists
+        existing_invitation = TeamInvitation.objects.filter(
+            team=team,
+            free_agent=free_agent
+        ).first()
+        
+        if existing_invitation:
+            if existing_invitation.status == 'PENDING':
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'An invitation is already pending for this free agent'
+                }, status=400)
+            elif existing_invitation.status == 'ACCEPTED':
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'This free agent has already joined a team'
+                }, status=400)
+        
+        try:
+            # Create invitation
+            invitation = TeamInvitation.objects.create(
+                free_agent=free_agent,
+                team=team
+            )
+            
+            # Update free agent status
+            free_agent.status = 'INVITED'
+            free_agent.save()
+            
+            messages.success(request, f'Invitation sent to {free_agent.first_name} {free_agent.last_name}')
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Invitation sent successfully'
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+class SentInvitationsView(LoginRequiredMixin, UserPassesTestMixin, ListView):
+    template_name = 'teams/sent_invitations.html'
+    context_object_name = 'invitations'
+    
+    def test_func(self):
+        return self.request.user.is_team_captain()
+    
+    def get_queryset(self):
+        # Get all teams where user is captain
+        captained_teams = Team.objects.filter(
+            captain__user=self.request.user
+        )
+        
+        # Get all invitations for these teams
+        return TeamInvitation.objects.filter(
+            team__in=captained_teams
+        ).select_related(
+            'team',
+            'team__league',
+            'team__division',
+            'free_agent'
+        ).order_by('-created_at')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Get captained teams
+        captained_teams = Team.objects.filter(
+            captain__user=self.request.user
+        ).select_related('league')
+        
+        context['captained_teams'] = captained_teams
+        
+        # Group invitations by status
+        grouped_invitations = {
+            'PENDING': [],
+            'ACCEPTED': [],
+            'DECLINED': [],
+            'EXPIRED': []
+        }
+        
+        for invitation in self.get_queryset():
+            grouped_invitations[invitation.status].append(invitation)
+            
+        context['grouped_invitations'] = grouped_invitations
+        return context
+    
 class RemovePlayerView(LoginRequiredMixin, UserPassesTestMixin, View):
     def test_func(self):
         team = Team.objects.get(players=self.kwargs['player_id'])

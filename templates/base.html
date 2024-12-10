@@ -37,6 +37,28 @@
                     </a>
                 {% endif %}
             {% endif %}
+
+            {% if user.is_authenticated %}
+                    <a href="{% url 'sportsSignUp:my_free_agent_registrations' %}" class="hover:text-blue-200 transition duration-300">
+            My Free Agent Status
+                    </a>
+            {% endif %}
+
+            {% if user.is_authenticated %}
+            <form method="post" action="{% url 'sportsSignUp:logout' %}" class="inline">
+                {% csrf_token %}
+                <button type="submit" class="hover:text-blue-200 transition duration-300">
+                    Logout
+                </button>
+            </form>
+            {% else %}
+                <a href="{% url 'login' %}" class="hover:text-blue-200 transition duration-300">
+                    Login
+                </a>
+                <a href="{% url 'sportsSignUp:signup' %}" class="hover:text-blue-200 transition duration-300">
+                    Sign Up
+                </a>
+            {% endif %}
             </div>
             
             <!-- Mobile Menu Button -->
@@ -59,7 +81,27 @@
                     Active Leagues
                 </a>
                 {% if user.is_authenticated and user.is_admin %}
-                <a href="{% url 'sportsSignUp:registration_management' %}" class="nav-link">Manage Registrations</a>
+                <a href="{% url 'sportsSignUp:registration_management' %}" class="block py-2 hover:bg-blue-600 rounded">Manage Registrations</a>
+                {% endif %}
+                {% if user.is_authenticated %}
+                <a href="{% url 'sportsSignUp:my_free_agent_registrations' %}" class="hover:text-blue-200 transition duration-300">
+                My Free Agent Status
+                </a>
+                {% endif %}
+                {% if user.is_authenticated %}
+                <form method="post" action="{% url 'sportsSignUp:logout' %}" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="hover:text-blue-200 transition duration-300">
+                        Logout
+                    </button>
+                </form>
+                {% else %}
+                    <a href="{% url 'login' %}" class="hover:text-blue-200 transition duration-300">
+                        Login
+                    </a>
+                    <a href="{% url 'sportsSignUp:signup' %}" class="hover:text-blue-200 transition duration-300">
+                        Sign Up
+                    </a>
                 {% endif %}
             </div>
         </div>
