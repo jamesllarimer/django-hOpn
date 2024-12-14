@@ -69,3 +69,19 @@ class CustomUserCreationForm(UserCreationForm):
         if commit:
             user.save()
         return user
+    
+
+class ProfileUpdateForm(forms.ModelForm):
+    class Meta:
+        model = CustomUser
+        fields = ['first_name', 'last_name', 'email', 'phone_number', 'date_of_birth']
+        widgets = {
+            'first_name': forms.TextInput(attrs={'class': 'w-full border rounded px-3 py-2'}),
+            'last_name': forms.TextInput(attrs={'class': 'w-full border rounded px-3 py-2'}),
+            'email': forms.EmailInput(attrs={'class': 'w-full border rounded px-3 py-2'}),
+            'phone_number': forms.TextInput(attrs={'class': 'w-full border rounded px-3 py-2'}),
+            'date_of_birth': forms.DateInput(attrs={
+                'type': 'date',
+                'class': 'w-full border rounded px-3 py-2'
+            }),
+        }

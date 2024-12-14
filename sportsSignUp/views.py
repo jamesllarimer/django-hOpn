@@ -17,7 +17,7 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic.edit import CreateView
 
 from sportsSignUp.stripe_utils import get_stripe_price_id
-from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, TeamSignupForm
+from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, ProfileUpdateForm, TeamSignupForm
 from django.contrib import messages
 from django.utils import timezone
 from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamInvitation, TeamInvitationNotification
@@ -164,8 +164,28 @@ class SignUpView(CreateView):
         login(self.request, user)
         messages.success(self.request, 'Account created successfully!')
         return response
-    
+class ProfileManagementView(LoginRequiredMixin, UpdateView):
+    model = CustomUser
+    template_name = 'registration/profile_management.html'
+    fields = ['first_name', 'last_name', 'email', 'phone_number', 'date_of_birth']
+    success_url = reverse_lazy('profile_management')
 
+    def get_object(self, queryset=None):
+        return self.request.user    
+
+class ProfileManagementView(LoginRequiredMixin, UpdateView):
+    model = CustomUser
+    form_class = ProfileUpdateForm
+    template_name = 'registration/profile_management.html'
+    success_url = reverse_lazy('sportsSignUp:profile_management')
+
+    def get_object(self, queryset=None):
+        return self.request.user
+    
+    def form_valid(self, form):
+        messages.success(self.request, 'Your profile has been updated successfully!')
+        return super().form_valid(form)
+    
 class LeagueListView(ListView):
     template_name = 'leagues/league_list.html'
     context_object_name = 'sports'
@@ -421,34 +441,76 @@ class CancelInvitationView(LoginRequiredMixin, UserPassesTestMixin, View):
         return JsonResponse({'status': 'success'})
 class AcceptInvitationView(LoginRequiredMixin, View):
     def post(self, request, invitation_id):
-        invitation = get_object_or_404(TeamInvitation, id=invitation_id)
-        
-        # Create Stripe checkout session here
         try:
-            checkout_session = stripe.checkout.Session.create(
-                payment_method_types=['card'],
-                line_items=[{
-                    'price': 'price_1Nj6w4A4CECRU4aHIDEv90eE',
-                    'quantity': 1,
-                }],
-                mode='payment',
-                success_url=request.build_absolute_uri(
-                    reverse('sportsSignUp:invitation_payment_success', kwargs={'invitation_id': invitation_id})
-                ) + "?session_id={CHECKOUT_SESSION_ID}",
-                cancel_url=request.build_absolute_uri(
-                    reverse('sportsSignUp:invitation_payment_cancel', kwargs={'invitation_id': invitation_id})
-                ),
-                metadata={
-                    'invitation_id': invitation_id,
-                    'team_id': str(invitation.team.id),
-                    'free_agent_id': str(invitation.free_agent.id)
+            # Get invitation and verify ownership
+            invitation = get_object_or_404(TeamInvitation, 
+                id=invitation_id,
+                free_agent__user=request.user
+            )
+            
+            # Check if the league registration is still open
+            if invitation.team.league.registration_end_date < timezone.now().date():
+                messages.error(request, "League registration has ended. You can no longer accept this invitation.")
+                return redirect('sportsSignUp:my_free_agent_registrations')
+            
+            # Check if the team is full (you might want to add a max_players field to Team model)
+            if hasattr(invitation.team, 'max_players') and invitation.team.players.count() >= invitation.team.max_players:
+                messages.error(request, "This team is now full and cannot accept new players.")
+                return redirect('sportsSignUp:my_free_agent_registrations')
+            
+            # Update invitation status
+            invitation.status = 'ACCEPTED'
+            invitation.response_at = timezone.now()
+            invitation.save()
+            
+            # Update free agent status
+            invitation.free_agent.status = 'JOINED'
+            invitation.free_agent.save()
+            
+            # Create or update player record
+            player, created = Player.objects.get_or_create(
+                user=request.user,
+                team=invitation.team,
+                defaults={
+                    'first_name': invitation.free_agent.first_name,
+                    'last_name': invitation.free_agent.last_name,
+                    'email': invitation.free_agent.email,
+                    'phone_number': invitation.free_agent.phone_number,
+                    'date_of_birth': invitation.free_agent.date_of_birth,
+                    'is_active': True
                 }
             )
-            return redirect(checkout_session.url)
             
+            # Create registration record
+            Registration.objects.get_or_create(
+                player=player,
+                league=invitation.team.league,
+                division=invitation.team.division,
+                defaults={
+                    'payment_status': 'pending',
+                    'is_late_registration': timezone.now().date() > invitation.team.league.early_registration_deadline
+                }
+            )
+            
+            messages.success(request, f"You have successfully joined {invitation.team.name}!")
+            
+            # Decline all other pending invitations
+            TeamInvitation.objects.filter(
+                free_agent__user=request.user,
+                status='PENDING'
+            ).exclude(
+                id=invitation_id
+            ).update(
+                status='DECLINED',
+                response_at=timezone.now()
+            )
+            
+        except TeamInvitation.DoesNotExist:
+            messages.error(request, "Invitation not found.")
         except Exception as e:
-            messages.error(request, f"Payment error: {str(e)}")
-            return redirect('sportsSignUp:invitation_detail', invitation_id=invitation_id)
+            messages.error(request, f"Error processing invitation: {str(e)}")
+        
+        return redirect('sportsSignUp:my_free_agent_registrations')
         
 class FreeAgentPoolView(LoginRequiredMixin, UserPassesTestMixin, ListView):
     model = FreeAgent
