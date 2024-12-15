@@ -12,7 +12,7 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 
 import os
 from config.env import BASE_DIR, env
-AUTH_USER_MODEL = 'sportsSignUp.CustomUser'
+AUTH_USER_MODEL = 'accounts.CustomUser'
 env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # Quick-start development settings - unsuitable for production
@@ -35,14 +35,23 @@ CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS", default=[])
 
 # Application definition
 
-INSTALLED_APPS = [
-    'sportsSignUp.apps.SportssignupConfig',
+INSTALLED_APPS = [   
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'api.apps.ApiConfig',
+
+    # Local apps
+    'accounts.apps.AccountsConfig',
+    'leagues.apps.LeaguesConfig',
+    'teams.apps.TeamsConfig',
+    'players.apps.PlayersConfig',
+    'registrations.apps.RegistrationsConfig',
+    'invitations.apps.InvitationsConfig',
 ]
 
 MIDDLEWARE = [
@@ -73,6 +82,16 @@ TEMPLATES = [
         },
     },
 ]
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+}
 
 WSGI_APPLICATION = 'config.wsgi.application'
 

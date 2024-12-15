@@ -1,0 +1,240 @@
+{# invitations/templates/invitations/sent_invitations.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold">Team Invitations Sent</h1>
+        {% if invitations.first %}
+            <a href="{% url 'players:free_agent_pool' invitations.first.team.league.id %}" 
+               class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
+                View Free Agents
+            </a>
+        {% endif %}
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="mb-4 p-4 rounded-md {% if message.tags == 'error' %}bg-red-100 text-red-700{% elif message.tags == 'success' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {% if not invitations %}
+        <div class="bg-white rounded-lg shadow-md p-6 text-center">
+            <p class="text-gray-600">You haven't sent any invitations yet.</p>
+            {% if captained_teams %}
+                <a href="{% url 'players:free_agent_pool' captained_teams.first.league.id %}" 
+                   class="mt-4 inline-block text-blue-500 hover:text-blue-700">
+                    Browse Free Agents
+                </a>
+            {% endif %}
+        </div>
+    {% else %}
+        {# Pending Invitations #}
+        {% if grouped_invitations.PENDING %}
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <span class="w-3 h-3 bg-yellow-400 rounded-full mr-2"></span>
+                    Pending Invitations ({{ grouped_invitations.PENDING|length }})
+                </h2>
+                <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {% for invitation in grouped_invitations.PENDING %}
+                        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-400">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 class="font-semibold">{{ invitation.free_agent.first_name }} {{ invitation.free_agent.last_name }}</h3>
+                                    <p class="text-sm text-gray-600">{{ invitation.team.name }}</p>
+                                </div>
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                    Pending
+                                </span>
+                            </div>
+                            <div class="text-sm text-gray-600">
+                                <p>League: {{ invitation.team.league.name }}</p>
+                                <p>Division: {{ invitation.team.division.name }}</p>
+                                <p>Sent: {{ invitation.created_at|date:"M d, Y" }}</p>
+                                {% if invitation.message %}
+                                    <div class="mt-2 p-2 bg-gray-50 rounded-md italic">
+                                        "{{ invitation.message }}"
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <div class="mt-4">
+                                <button onclick="cancelInvitation('{{ invitation.id }}')"
+                                        class="text-red-600 hover:text-red-800 text-sm">
+                                    Cancel Invitation
+                                </button>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        {# Accepted Invitations #}
+        {% if grouped_invitations.ACCEPTED %}
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <span class="w-3 h-3 bg-green-400 rounded-full mr-2"></span>
+                    Accepted Invitations ({{ grouped_invitations.ACCEPTED|length }})
+                </h2>
+                <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {% for invitation in grouped_invitations.ACCEPTED %}
+                        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-400">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 class="font-semibold">{{ invitation.free_agent.first_name }} {{ invitation.free_agent.last_name }}</h3>
+                                    <p class="text-sm text-gray-600">{{ invitation.team.name }}</p>
+                                </div>
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                    Accepted
+                                </span>
+                            </div>
+                            <div class="text-sm text-gray-600">
+                                <p>League: {{ invitation.team.league.name }}</p>
+                                <p>Division: {{ invitation.team.division.name }}</p>
+                                <p>Accepted: {{ invitation.response_at|date:"M d, Y" }}</p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        {# Declined Invitations #}
+        {% if grouped_invitations.DECLINED %}
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <span class="w-3 h-3 bg-red-400 rounded-full mr-2"></span>
+                    Declined Invitations ({{ grouped_invitations.DECLINED|length }})
+                </h2>
+                <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {% for invitation in grouped_invitations.DECLINED %}
+                        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-red-400">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 class="font-semibold">{{ invitation.free_agent.first_name }} {{ invitation.free_agent.last_name }}</h3>
+                                    <p class="text-sm text-gray-600">{{ invitation.team.name }}</p>
+                                </div>
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                                    Declined
+                                </span>
+                            </div>
+                            <div class="text-sm text-gray-600">
+                                <p>League: {{ invitation.team.league.name }}</p>
+                                <p>Division: {{ invitation.team.division.name }}</p>
+                                <p>Declined: {{ invitation.response_at|date:"M d, Y" }}</p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    {# Invitation Modal #}
+    <div id="inviteModal" 
+         class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-medium text-gray-900">Send Team Invitation</h3>
+                    <button onclick="closeInviteModal()" class="text-gray-400 hover:text-gray-500">
+                        <span class="sr-only">Close</span>
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <form id="invitationForm" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" id="freeAgentId" name="free_agent_id">
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Free Agent</label>
+                        <p id="selectedAgentName" class="mt-1 text-gray-600"></p>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="{{ invitation_form.message.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                            Message (Optional)
+                        </label>
+                        {{ invitation_form.message }}
+                        {% if invitation_form.message.errors %}
+                            <p class="mt-1 text-sm text-red-600">
+                                {{ invitation_form.message.errors|join:", " }}
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <div class="flex justify-end space-x-3">
+                        <button type="button"
+                                onclick="closeInviteModal()"
+                                class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                            Send Invitation
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+function cancelInvitation(invitationId) {
+    if (confirm('Are you sure you want to cancel this invitation?')) {
+        fetch(`/api/invitations/${invitationId}/cancel/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            }
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Error canceling invitation');
+            }
+        });
+    }
+}
+
+function openInviteModal(freeAgentId, name) {
+    document.getElementById('freeAgentId').value = freeAgentId;
+    document.getElementById('selectedAgentName').textContent = name;
+    document.getElementById('inviteModal').classList.remove('hidden');
+}
+
+function closeInviteModal() {
+    document.getElementById('inviteModal').classList.add('hidden');
+    document.getElementById('invitationForm').reset();
+}
+
+document.getElementById('invitationForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    
+    fetch('/api/invitations/send/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+        },
+        body: formData
+    }).then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Error sending invitation');
+        }
+    });
+});
+</script>
+{% endblock %}
+{% endblock %}

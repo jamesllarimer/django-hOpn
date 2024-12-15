@@ -1,0 +1,49 @@
+{# teams/templates/teams/team_edit.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-2xl">
+    <div class="bg-white shadow rounded-lg p-6">
+        <h1 class="text-2xl font-bold mb-6">{{ title }}</h1>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            
+            {% if form.non_field_errors %}
+                <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                    {% for error in form.non_field_errors %}
+                        <p>{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% for field in form %}
+                <div>
+                    <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ field.label }}
+                    </label>
+                    <div>
+                        {{ field }}
+                    </div>
+                    {% if field.errors %}
+                        <p class="mt-1 text-sm text-red-600">{{ field.errors|join:", " }}</p>
+                    {% endif %}
+                    {% if field.help_text %}
+                        <p class="mt-1 text-sm text-gray-500">{{ field.help_text }}</p>
+                    {% endif %}
+                </div>
+            {% endfor %}
+
+            <div class="flex justify-end space-x-4 mt-6">
+                <a href="{% url 'teams:manage' %}" 
+                   class="px-4 py-2 border rounded hover:bg-gray-50">
+                    Cancel
+                </a>
+                <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

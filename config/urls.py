@@ -16,11 +16,17 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
-
-
-
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('sportsSignUp/', include('sportsSignUp.urls')),
+    
+    # Authentication and user management
     path('', include('django.contrib.auth.urls')),  # This line is crucial for auth views
+    path('', include('accounts.urls')),
+    
+    # Main app URLs
+    path('leagues/', include('leagues.urls')),
+    path('teams/', include('teams.urls')),
+    path('players/', include('players.urls')),
+    path('registrations/', include('registrations.urls')),
+    path('invitations/', include('invitations.urls')),
 ]
