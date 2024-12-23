@@ -14,10 +14,13 @@ urlpatterns = [
      # League and Registration
      path("active-leagues/", views.active_leagues, name="active_leagues"),
      path("leagues/", views.LeagueListView.as_view(), name="league_list"),
-     path("leagues/<int:league_id>/register/free-agent/", views.FreeAgentRegistrationView.as_view(), name="free_agent_registration"),
      path("registration/success/", views.registration_success, name="registration_success"),
      path("registration/cancel/", views.registration_cancel, name="registration_cancel"),
      path("registrations/manage/", views.RegistrationManagementView.as_view(), name="registration_management"),
+
+     #free agent registration
+     path("leagues/<int:league_id>/register/free-agent/", views.FreeAgentRegistrationView.as_view(), name="free_agent_registration"),
+     path("free-agent/registration/success/", views.FreeAgentRegistrationSuccessView.as_view(), name="free_agent_registration_success"),
      path("my-free-agent-registrations/", views.MyFreeAgentRegistrationsView.as_view(), name="my_free_agent_registrations"),
 
      # Invitations
@@ -35,6 +38,7 @@ urlpatterns = [
      path("api/divisions-and-teams-by-league/<int:league_id>/", views.divisions_and_teams_by_league, name="divisions_and_teams_by_league"),
 
      # Teams
+     path('teams/create/<int:league_id>/', views.TeamCreationView.as_view(), name='team_create'),
      path("teams/manage/", views.TeamManagementView.as_view(), name="team_management"),
      path("teams/<int:pk>/edit/", views.TeamEditView.as_view(), name="team_edit"),
      path("teams/<int:team_id>/send-email/", views.send_team_email, name="team_email"),

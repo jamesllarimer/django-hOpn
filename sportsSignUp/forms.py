@@ -1,7 +1,38 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
-from .models import CustomUser, Division, FreeAgent, Player
+from .models import CustomUser, Division, FreeAgent, Player, Team
 
+class TeamCreationForm(forms.ModelForm):
+    class Meta:
+        model = Team
+        fields = ['name', 'division']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'w-full border rounded px-3 py-2',
+                'placeholder': 'Enter team name'
+            }),
+            'division': forms.Select(attrs={
+                'class': 'w-full border rounded px-3 py-2'
+            })
+        }
+
+    def __init__(self, *args, league=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if league:
+            # Only show divisions available for this league
+            self.fields['division'].queryset = league.available_divisions.all()
+            self.instance.league = league  # Set the league for the team
+
+    def clean_name(self):
+        name = self.cleaned_data.get('name')
+        league = self.instance.league
+        
+        # Check if a team with this name already exists in the league
+        if Team.objects.filter(name=name, league=league).exists():
+            raise forms.ValidationError("A team with this name already exists in this league.")
+        
+        return name
+    
 class FreeAgentRegistrationForm(forms.ModelForm):
     class Meta:
         model = FreeAgent

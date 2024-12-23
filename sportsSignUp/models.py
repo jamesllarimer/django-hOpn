@@ -125,7 +125,14 @@ class League(models.Model):
                                                limit_choices_to={'sport': models.F('sport')})
     
     # Stripe integration
-    stripe_product_id = models.CharField(max_length=255, blank=True, null=True)
+    stripe_product = models.ForeignKey(
+        'StripeProduct',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='leagues',
+        help_text="Stripe product associated with this league"
+    )
     
     # Registration details
     registration_start_date = models.DateField()
@@ -157,6 +164,24 @@ class League(models.Model):
     
     def __str__(self):
         return f"{self.name} - {self.sport.name}"
+
+    def get_stripe_price_id(self, is_member=False, is_early_registration=False):
+        """
+        Get the appropriate Stripe price ID based on membership status and registration timing
+        """
+        if not self.stripe_product:
+            return None
+
+        prices = self.stripe_product.prices.filter(active=True)
+        
+        # Filter based on metadata
+        for price in prices.all():
+            metadata = price.metadata
+            if (metadata.get('is_member', '').lower() == str(is_member).lower() and 
+                metadata.get('is_early_registration', '').lower() == str(is_early_registration).lower()):
+                return price.stripe_id
+                
+        return None
 
 def generate_unique_signup_code():
     """Generate a unique signup code for teams"""

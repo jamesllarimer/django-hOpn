@@ -10,11 +10,18 @@
         </div>
         
         {% if is_captain %}
+        <div class="flex space-x-4">
             <a href="{% url 'sportsSignUp:free_agent_pool' team.league.id %}"
                class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">
                 View Free Agents
             </a>
-        {% endif %}
+            <button onclick="copySignupLink('{{ signup_url }}')"
+                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                Copy Signup Link
+            </button>
+        </div>
+    {% endif %}
+        
     </div>
 
     <!-- Team Roster -->
@@ -97,7 +104,10 @@
             });
         }
     }
-
+    function copySignupLink(signupUrl) {
+        navigator.clipboard.writeText(signupUrl);
+        alert('Signup link copied to clipboard!');
+    }
     function cancelInvitation(invitationId) {
         if (confirm('Are you sure you want to cancel this invitation?')) {
             fetch(`/teams/cancel-invitation/${invitationId}/`, {

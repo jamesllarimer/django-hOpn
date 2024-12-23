@@ -17,10 +17,10 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic.edit import CreateView
 
 from sportsSignUp.stripe_utils import get_stripe_price_id
-from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, ProfileUpdateForm, TeamSignupForm
+from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, ProfileUpdateForm, TeamCreationForm, TeamSignupForm
 from django.contrib import messages
 from django.utils import timezone
-from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamInvitation, TeamInvitationNotification
+from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamCaptain, TeamInvitation, TeamInvitationNotification
 import stripe
 from django.views.generic import ListView
 from django.contrib.auth.mixins import UserPassesTestMixin
@@ -205,7 +205,45 @@ class LeagueListView(ListView):
             ).select_related('sport').prefetch_related('available_divisions')
             
         return sports
-
+class TeamCreationView(LoginRequiredMixin, CreateView):
+    form_class = TeamCreationForm
+    template_name = 'teams/team_create.html'
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        self.league = get_object_or_404(League, id=self.kwargs['league_id'])
+        kwargs['league'] = self.league
+        return kwargs
+    
+    def form_valid(self, form):
+        # Create or get TeamCaptain for the current user
+        team_captain, created = TeamCaptain.objects.get_or_create(
+            user=self.request.user,
+            defaults={
+                'first_name': self.request.user.first_name,
+                'last_name': self.request.user.last_name,
+                'email': self.request.user.email,
+                'phone_number': self.request.user.phone_number or ''
+            }
+        )
+        
+        # Set the captain for the team
+        form.instance.captain = team_captain
+        
+        # Save the team
+        response = super().form_valid(form)
+        
+        messages.success(self.request, f"Team '{form.instance.name}' has been created successfully!")
+        return response
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['league'] = self.league
+        return context
+    
+    def get_success_url(self):
+        return reverse('sportsSignUp:team_detail', kwargs={'pk': self.object.id})
+    
 class FreeAgentRegistrationSuccessView(LoginRequiredMixin, TemplateView):
     template_name = 'leagues/free_agent_registration_success.html'
     
@@ -445,7 +483,8 @@ class AcceptInvitationView(LoginRequiredMixin, View):
             # Get invitation and verify ownership
             invitation = get_object_or_404(TeamInvitation, 
                 id=invitation_id,
-                free_agent__user=request.user
+                free_agent__user=request.user,
+                status='PENDING'
             )
             
             # Check if the league registration is still open
@@ -453,57 +492,29 @@ class AcceptInvitationView(LoginRequiredMixin, View):
                 messages.error(request, "League registration has ended. You can no longer accept this invitation.")
                 return redirect('sportsSignUp:my_free_agent_registrations')
             
-            # Check if the team is full (you might want to add a max_players field to Team model)
+            # Check if the team is full
             if hasattr(invitation.team, 'max_players') and invitation.team.players.count() >= invitation.team.max_players:
                 messages.error(request, "This team is now full and cannot accept new players.")
                 return redirect('sportsSignUp:my_free_agent_registrations')
             
-            # Update invitation status
-            invitation.status = 'ACCEPTED'
-            invitation.response_at = timezone.now()
+            # Update invitation status to show intent to join
+            invitation.status = 'PENDING_PAYMENT'
             invitation.save()
             
-            # Update free agent status
-            invitation.free_agent.status = 'JOINED'
-            invitation.free_agent.save()
+            # Pre-fill form data in session
+            request.session['team_signup_data'] = {
+                'first_name': invitation.free_agent.first_name,
+                'last_name': invitation.free_agent.last_name,
+                'email': invitation.free_agent.email,
+                'phone_number': invitation.free_agent.phone_number,
+                'date_of_birth': invitation.free_agent.date_of_birth.strftime('%Y-%m-%d'),
+                'is_member': invitation.free_agent.is_member,
+                'membership_number': invitation.free_agent.membership_number,
+                'invitation_id': invitation_id
+            }
             
-            # Create or update player record
-            player, created = Player.objects.get_or_create(
-                user=request.user,
-                team=invitation.team,
-                defaults={
-                    'first_name': invitation.free_agent.first_name,
-                    'last_name': invitation.free_agent.last_name,
-                    'email': invitation.free_agent.email,
-                    'phone_number': invitation.free_agent.phone_number,
-                    'date_of_birth': invitation.free_agent.date_of_birth,
-                    'is_active': True
-                }
-            )
-            
-            # Create registration record
-            Registration.objects.get_or_create(
-                player=player,
-                league=invitation.team.league,
-                division=invitation.team.division,
-                defaults={
-                    'payment_status': 'pending',
-                    'is_late_registration': timezone.now().date() > invitation.team.league.early_registration_deadline
-                }
-            )
-            
-            messages.success(request, f"You have successfully joined {invitation.team.name}!")
-            
-            # Decline all other pending invitations
-            TeamInvitation.objects.filter(
-                free_agent__user=request.user,
-                status='PENDING'
-            ).exclude(
-                id=invitation_id
-            ).update(
-                status='DECLINED',
-                response_at=timezone.now()
-            )
+            # Redirect to team signup page
+            return redirect('sportsSignUp:team_signup', signup_code=invitation.team.signup_code)
             
         except TeamInvitation.DoesNotExist:
             messages.error(request, "Invitation not found.")
@@ -611,8 +622,12 @@ class TeamDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
                 team=team, 
                 status='PENDING'
             ) if is_captain else None,
+            'signup_url': self.request.build_absolute_uri(
+                reverse('sportsSignUp:team_signup', kwargs={'signup_code': team.signup_code})
+            ),
         })
         return context
+    
 class ClaimTeamCaptainView(LoginRequiredMixin, View):
     def post(self, request, team_id):
         team = get_object_or_404(Team, id=team_id)
@@ -1014,6 +1029,10 @@ def team_signup_page(request, signup_code):
     """Public page for team signups"""
     team = get_object_or_404(Team, signup_code=signup_code)
 
+    # Get prefilled data from session if coming from invitation
+    initial_data = request.session.get('team_signup_data', {})
+    invitation_id = initial_data.pop('invitation_id', None)
+
     if request.method == 'POST':
         form = TeamSignupForm(request.POST)
         if form.is_valid():
@@ -1044,6 +1063,7 @@ def team_signup_page(request, signup_code):
                     ),
                     metadata={
                         'team_id': team.id,
+                        'invitation_id': invitation_id,
                         'player_data': json.dumps({
                             'first_name': form.cleaned_data['first_name'],
                             'last_name': form.cleaned_data['last_name'],
@@ -1056,17 +1076,23 @@ def team_signup_page(request, signup_code):
                         })
                     }
                 )
+                
+                # Clear session data if it exists
+                if 'team_signup_data' in request.session:
+                    del request.session['team_signup_data']
+                
                 return redirect(checkout_session.url)
                 
             except stripe.error.StripeError as e:
                 messages.error(request, f"Payment error: {str(e)}")
-                return redirect('team_signup', signup_code=signup_code)
+                return redirect('sportsSignUp:team_signup', signup_code=signup_code)
     else:
-        form = TeamSignupForm()
+        form = TeamSignupForm(initial=initial_data)
 
     return render(request, 'teams/team_signup.html', {
         'team': team,
         'form': form,
+        'is_invitation': bool(invitation_id)
     })
 
 def team_signup_success(request):
@@ -1081,31 +1107,62 @@ def team_signup_success(request):
         session = stripe.checkout.Session.retrieve(session_id)
         player_data = json.loads(session.metadata['player_data'])
         team = get_object_or_404(Team, id=session.metadata['team_id'])
+        invitation_id = session.metadata.get('invitation_id')
         
-        # Create the player
-        player = Player.objects.create(
-            first_name=player_data['first_name'],
-            last_name=player_data['last_name'],
-            email=player_data['email'],
-            phone_number=player_data['phone_number'],
-            parent_name=player_data.get('parent_name'),
-            date_of_birth=datetime.strptime(player_data['date_of_birth'], '%Y-%m-%d').date(),
-            membership_number=player_data['membership_number'],
-            is_member=player_data['is_member'],
-            team=team
-        )
-        
-        # Create registration
-        registration = Registration.objects.create(
-            player=player,
-            league=team.league,
-            division=team.division,
-            payment_status='paid',
-            stripe_payment_intent=session.payment_intent
-        )
+        with transaction.atomic():
+            # Create the player
+            player = Player.objects.create(
+                first_name=player_data['first_name'],
+                last_name=player_data['last_name'],
+                email=player_data['email'],
+                phone_number=player_data['phone_number'],
+                parent_name=player_data.get('parent_name'),
+                date_of_birth=datetime.strptime(player_data['date_of_birth'], '%Y-%m-%d').date(),
+                membership_number=player_data['membership_number'],
+                is_member=player_data['is_member'],
+                team=team,
+                user=request.user if request.user.is_authenticated else None
+            )
+            
+            # Create registration
+            registration = Registration.objects.create(
+                player=player,
+                league=team.league,
+                division=team.division,
+                payment_status='paid',
+                stripe_payment_intent=session.payment_intent,
+                stripe_checkout_session=session_id,
+                is_late_registration=timezone.now().date() > team.league.early_registration_deadline
+            )
+            
+            # If this was from an invitation, update the invitation and free agent status
+            if invitation_id:
+                try:
+                    invitation = TeamInvitation.objects.get(id=invitation_id)
+                    invitation.status = 'ACCEPTED'
+                    invitation.response_at = timezone.now()
+                    invitation.save()
+                    
+                    # Update free agent status
+                    invitation.free_agent.status = 'JOINED'
+                    invitation.free_agent.save()
+                    
+                    # Decline other pending invitations
+                    TeamInvitation.objects.filter(
+                        free_agent=invitation.free_agent,
+                        status='PENDING'
+                    ).exclude(
+                        id=invitation_id
+                    ).update(
+                        status='DECLINED',
+                        response_at=timezone.now()
+                    )
+                except TeamInvitation.DoesNotExist:
+                    # Log this but don't fail the registration
+                    logger.warning(f"Could not find invitation {invitation_id} for successful signup")
         
         messages.success(request, 'Registration completed successfully!')
-        return redirect('sportsSignUp:teams/team_signup_success')
+        return redirect('sportsSignUp:team_detail', pk=team.id)
         
     except Exception as e:
         messages.error(request, f'Error processing registration: {str(e)}')
