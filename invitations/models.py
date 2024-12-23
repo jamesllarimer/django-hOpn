@@ -1,22 +1,21 @@
 from django.db import models
 from accounts.models import CustomUser
-from teams.models import Team
 from players.models import FreeAgent
+from teams.models import Team
 
 class TeamInvitation(models.Model):
-    """
-    Represents an invitation from a team to a free agent
-    """
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('ACCEPTED', 'Accepted'),
+        ('DECLINED', 'Declined'),
+        ('EXPIRED', 'Expired')
+    ]
+    
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='sent_invitations')
     free_agent = models.ForeignKey(FreeAgent, on_delete=models.CASCADE, related_name='received_invitations')
     status = models.CharField(
         max_length=20,
-        choices=[
-            ('PENDING', 'Pending'),
-            ('ACCEPTED', 'Accepted'),
-            ('DECLINED', 'Declined'),
-            ('EXPIRED', 'Expired')
-        ],
+        choices=STATUS_CHOICES,
         default='PENDING'
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,9 +24,6 @@ class TeamInvitation(models.Model):
 
     class Meta:
         unique_together = ['team', 'free_agent']  # Prevent duplicate invitations
-
-    def __str__(self):
-        return f"{self.team.name} → {self.free_agent.get_full_name()} ({self.status})"
 
 class TeamInvitationNotification(models.Model):
     """

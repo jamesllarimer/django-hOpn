@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from leagues.models import League, Division
+from players.models import Player
 from teams.models import Team
 from ..serializers.serializers import DivisionSerializer, TeamSerializer
 

@@ -1,18 +1,21 @@
+import logging
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import UserPassesTestMixin, LoginRequiredMixin
+from django.http import JsonResponse
 from django.shortcuts import redirect, get_object_or_404
 from django.views.generic import ListView, FormView, TemplateView, View
 from django.utils import timezone
 from datetime import datetime
 from collections import defaultdict
-
 from .models import FreeAgent
 from registrations.models import Registration
 from players.forms import FreeAgentRegistrationForm
 from players.models import Player
 from leagues.models import League, Division
 from api.client import ApiClient
+
+logger = logging.getLogger(__name__)
 
 class FreeAgentRegistrationView(LoginRequiredMixin, FormView):
     template_name = 'players/free_agent_registration.html'

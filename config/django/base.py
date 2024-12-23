@@ -11,9 +11,11 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 
 import os
+from pathlib import Path
 from config.env import BASE_DIR, env
-AUTH_USER_MODEL = 'accounts.CustomUser'
 env.read_env(os.path.join(BASE_DIR, ".env"))
+
+AUTH_USER_MODEL = 'accounts.CustomUser'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
@@ -48,6 +50,7 @@ INSTALLED_APPS = [
     # Local apps
     'accounts.apps.AccountsConfig',
     'leagues.apps.LeaguesConfig',
+    'core.apps.CoreConfig',
     'teams.apps.TeamsConfig',
     'players.apps.PlayersConfig',
     'registrations.apps.RegistrationsConfig',
@@ -67,10 +70,15 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
+print(f"BASE_DIR is: {BASE_DIR}")
+print(f"Template directory should be at: {BASE_DIR / 'templates'}")
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')],
+        'DIRS': [
+            BASE_DIR / 'templates',  # Add this line
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -142,12 +150,11 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/4.0/howto/static-files/
-
+# Static files settings
 STATIC_URL = 'static/'
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "static")]
-STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',  # Project-level static files
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.0/ref/settings/#default-auto-field
