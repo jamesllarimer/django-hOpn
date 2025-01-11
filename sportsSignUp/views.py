@@ -20,7 +20,7 @@ from sportsSignUp.stripe_utils import get_stripe_price_id
 from .forms import CustomUserCreationForm, FreeAgentRegistrationForm, ProfileUpdateForm, TeamCreationForm, TeamSignupForm
 from django.contrib import messages
 from django.utils import timezone
-from .models import CustomUser, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamCaptain, TeamInvitation, TeamInvitationNotification
+from .models import CustomUser, FormResponse, Sport, Team, Player, Division, League, Registration, FreeAgent, TeamCaptain, TeamInvitation, TeamInvitationNotification, DynamicForm, FormField, FormResponse, League
 import stripe
 from django.views.generic import ListView
 from django.contrib.auth.mixins import UserPassesTestMixin
@@ -477,6 +477,7 @@ class CancelInvitationView(LoginRequiredMixin, UserPassesTestMixin, View):
         invitation.status = 'CANCELLED'
         invitation.save()
         return JsonResponse({'status': 'success'})
+    
 class AcceptInvitationView(LoginRequiredMixin, View):
     def post(self, request, invitation_id):
         try:
@@ -641,6 +642,7 @@ class ClaimTeamCaptainView(LoginRequiredMixin, View):
             messages.error(request, "You are not authorized to claim this team.")
             
         return redirect('sportsSignUp:team_dashboard')
+
 def registration_success(request):
     session_id = request.GET.get('session_id')
     if not session_id:
@@ -650,32 +652,39 @@ def registration_success(request):
     try:
         # Retrieve the Stripe session
         session = stripe.checkout.Session.retrieve(session_id)
-        player_data = json.loads(session.metadata['player_data'])
         
-        # Create or get the Player
-        player = Player.objects.create(
-            first_name=player_data['first_name'],
-            last_name=player_data['last_name'],
-            email=player_data['email'],
-            phone_number=player_data['phone_number'],
-            parent_name=player_data.get('parent_name'),
-            date_of_birth=datetime.strptime(player_data['date_of_birth'], '%Y-%m-%d').date(),
-            membership_number=player_data['membership_number'],
-            is_member=player_data['is_member'],
-            user=request.user if request.user.is_authenticated else None
-        )
-        
-        # Create the Registration
-        registration = Registration.objects.create(
-            player=player,
-            league_id=session.metadata['league_id'],
-            payment_status='paid',
-            stripe_payment_intent=session.payment_intent,
-            stripe_checkout_session=session_id,  # You might want to add this field to your model
-            notes=player_data.get('notes', ''),
-            is_late_registration=session.metadata.get('is_late_registration', 'false') == 'true',
-            division_id=session.metadata['division_id']
-        )
+        # Get form response from session
+        form_response_id = session.metadata.get('form_response_id')
+        if form_response_id:
+            form_response = FormResponse.objects.get(id=form_response_id)
+            
+            # Create the Player using form response data
+            player = Player.objects.create(
+                first_name=form_response.responses.get('first_name', ''),
+                last_name=form_response.responses.get('last_name', ''),
+                email=form_response.responses.get('email', ''),
+                phone_number=form_response.responses.get('phone_number', ''),
+                date_of_birth=datetime.strptime(
+                    form_response.responses.get('date_of_birth', ''), 
+                    '%Y-%m-%d'
+                ).date(),
+                membership_number=form_response.responses.get('membership_number', ''),
+                is_member=form_response.responses.get('is_member', False),
+                user=request.user if request.user.is_authenticated else None
+            )
+            
+            # Create the Registration
+            registration = Registration.objects.create(
+                player=player,
+                league_id=session.metadata['league_id'],
+                payment_status='paid',
+                stripe_payment_intent=session.payment_intent,
+                division_id=session.metadata['division_id']
+            )
+            
+            # Link the form response to the registration
+            form_response.registration = registration
+            form_response.save()
 
         messages.success(request, 'Registration completed successfully!')
         return redirect('sportsSignUp:league_list')
@@ -683,7 +692,6 @@ def registration_success(request):
     except Exception as e:
         messages.error(request, f'Error processing registration: {str(e)}')
         return redirect('sportsSignUp:league_list')
-    
 def registration_cancel(request, league_id):
     messages.error(request, 'Registration canceled')
     return redirect('sportsSignUp:league_list')
@@ -1184,3 +1192,274 @@ def send_team_email(request, team_id):
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+    
+class DynamicFormManagementView(UserPassesTestMixin, ListView):
+    model = DynamicForm
+    template_name = 'forms/form_management.html'
+    context_object_name = 'forms'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['leagues_without_forms'] = League.objects.exclude(
+            id__in=DynamicForm.objects.values_list('league_id', flat=True)
+        )
+        return context
+
+class FormFieldForm(forms.ModelForm):
+    class Meta:
+        model = FormField
+        fields = ['label', 'field_type', 'required', 'placeholder', 
+                 'help_text', 'options', 'validation_rules', 'order']
+        widgets = {
+            'options': forms.Textarea(attrs={'rows': 3, 
+                'placeholder': '["Option 1", "Option 2", "Option 3"]'}),
+            'validation_rules': forms.Textarea(attrs={'rows': 3, 
+                'placeholder': '{"min_length": 5, "max_length": 50}'}),
+        }
+
+    def clean_options(self):
+        options = self.cleaned_data.get('options')
+        if options:
+            try:
+                return json.loads(options)
+            except json.JSONDecodeError:
+                raise forms.ValidationError('Invalid JSON format')
+        return options
+
+    def clean_validation_rules(self):
+        rules = self.cleaned_data.get('validation_rules')
+        if rules:
+            try:
+                return json.loads(rules)
+            except json.JSONDecodeError:
+                raise forms.ValidationError('Invalid JSON format')
+        return rules
+
+
+class RegistrationFormView(FormView):
+    template_name = 'forms/registration_form.html'
+    
+    def get_form_class(self):
+        # Dynamically create form class based on form fields
+        dynamic_form = get_object_or_404(
+            DynamicForm, 
+            league_id=self.kwargs['league_id'],
+            is_active=True
+        )
+        
+        class DynamicRegistrationForm(forms.Form):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                for field in dynamic_form.fields.all():
+                    field_kwargs = {
+                        'label': field.label,
+                        'required': field.required,
+                        'help_text': field.help_text,
+                    }
+                    
+                    if field.placeholder:
+                        field_kwargs['widget'] = forms.TextInput(
+                            attrs={'placeholder': field.placeholder}
+                        )
+                    
+                    if field.field_type == 'text':
+                        self.fields[f'field_{field.id}'] = forms.CharField(**field_kwargs)
+                    elif field.field_type == 'textarea':
+                        self.fields[f'field_{field.id}'] = forms.CharField(
+                            widget=forms.Textarea,
+                            **field_kwargs
+                        )
+                    elif field.field_type == 'number':
+                        self.fields[f'field_{field.id}'] = forms.IntegerField(**field_kwargs)
+                    elif field.field_type == 'email':
+                        self.fields[f'field_{field.id}'] = forms.EmailField(**field_kwargs)
+                    elif field.field_type == 'date':
+                        self.fields[f'field_{field.id}'] = forms.DateField(
+                            widget=forms.DateInput(attrs={'type': 'date'}),
+                            **field_kwargs
+                        )
+                    elif field.field_type == 'checkbox':
+                        self.fields[f'field_{field.id}'] = forms.BooleanField(**field_kwargs)
+                    elif field.field_type in ['select', 'radio']:
+                        choices = [(opt, opt) for opt in field.options]
+                        if field.field_type == 'select':
+                            self.fields[f'field_{field.id}'] = forms.ChoiceField(
+                                choices=choices,
+                                **field_kwargs
+                            )
+                        else:
+                            self.fields[f'field_{field.id}'] = forms.ChoiceField(
+                                widget=forms.RadioSelect,
+                                choices=choices,
+                                **field_kwargs
+                            )
+                    elif field.field_type == 'file':
+                        self.fields[f'field_{field.id}'] = forms.FileField(**field_kwargs)
+
+        return DynamicRegistrationForm
+
+    def form_valid(self, form):
+        dynamic_form = get_object_or_404(
+            DynamicForm, 
+            league_id=self.kwargs['league_id'],
+            is_active=True
+        )
+        
+        # Create response object
+        response = FormResponse.objects.create(
+            form=dynamic_form,
+            user=self.request.user,
+            responses=form.cleaned_data
+        )
+        
+        # Continue with registration process
+        return redirect('registration_payment', league_id=self.kwargs['league_id'])
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['league'] = get_object_or_404(League, id=self.kwargs['league_id'])
+        return context
+
+class DynamicFormCreateView(UserPassesTestMixin, CreateView):
+    model = DynamicForm
+    template_name = 'forms/form_create.html'
+    fields = ['title', 'description']
+    
+    def test_func(self):
+        return self.request.user.is_staff
+
+    def form_valid(self, form):
+        league_id = self.kwargs.get('league_id')
+        form.instance.league = get_object_or_404(League, id=league_id)
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse_lazy('form_edit', kwargs={'pk': self.object.pk})
+
+class DynamicFormEditView(UserPassesTestMixin, UpdateView):
+    model = DynamicForm
+    template_name = 'forms/form_edit.html'
+    fields = ['title', 'description', 'is_active']
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        FormFieldFormSet = modelformset_factory(
+            FormField, 
+            form=FormFieldForm,
+            extra=1,
+            can_delete=True
+        )
+        
+        if self.request.POST:
+            context['formfield_formset'] = FormFieldFormSet(
+                self.request.POST,
+                queryset=FormField.objects.filter(form=self.object)
+            )
+        else:
+            context['formfield_formset'] = FormFieldFormSet(
+                queryset=FormField.objects.filter(form=self.object)
+            )
+        return context
+
+    def form_valid(self, form):
+        context = self.get_context_data()
+        formfield_formset = context['formfield_formset']
+        
+        if formfield_formset.is_valid():
+            self.object = form.save()
+            formfield_formset.instance = self.object
+            formfield_formset.save()
+            return redirect(self.get_success_url())
+        else:
+            return self.render_to_response(self.get_context_data(form=form))
+
+class RegistrationFormView(CreateView):
+    model = FormResponse
+    template_name = 'forms/registration_form.html'
+    
+    def get_form_class(self):
+        # Dynamically create form class based on form fields
+        dynamic_form = get_object_or_404(
+            DynamicForm, 
+            league_id=self.kwargs['league_id'],
+            is_active=True
+        )
+        
+        class DynamicRegistrationForm(forms.Form):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                for field in dynamic_form.fields.all():
+                    field_kwargs = {
+                        'label': field.label,
+                        'required': field.required,
+                        'help_text': field.help_text,
+                    }
+                    
+                    if field.placeholder:
+                        field_kwargs['widget'] = forms.TextInput(
+                            attrs={'placeholder': field.placeholder}
+                        )
+                    
+                    if field.field_type == 'text':
+                        self.fields[f'field_{field.id}'] = forms.CharField(**field_kwargs)
+                    elif field.field_type == 'textarea':
+                        self.fields[f'field_{field.id}'] = forms.CharField(
+                            widget=forms.Textarea,
+                            **field_kwargs
+                        )
+                    elif field.field_type == 'number':
+                        self.fields[f'field_{field.id}'] = forms.IntegerField(**field_kwargs)
+                    elif field.field_type == 'email':
+                        self.fields[f'field_{field.id}'] = forms.EmailField(**field_kwargs)
+                    elif field.field_type == 'date':
+                        self.fields[f'field_{field.id}'] = forms.DateField(
+                            widget=forms.DateInput(attrs={'type': 'date'}),
+                            **field_kwargs
+                        )
+                    elif field.field_type == 'checkbox':
+                        self.fields[f'field_{field.id}'] = forms.BooleanField(**field_kwargs)
+                    elif field.field_type in ['select', 'radio']:
+                        choices = [(opt, opt) for opt in field.options]
+                        if field.field_type == 'select':
+                            self.fields[f'field_{field.id}'] = forms.ChoiceField(
+                                choices=choices,
+                                **field_kwargs
+                            )
+                        else:
+                            self.fields[f'field_{field.id}'] = forms.ChoiceField(
+                                widget=forms.RadioSelect,
+                                choices=choices,
+                                **field_kwargs
+                            )
+                    elif field.field_type == 'file':
+                        self.fields[f'field_{field.id}'] = forms.FileField(**field_kwargs)
+
+        return DynamicRegistrationForm
+
+    def form_valid(self, form):
+        dynamic_form = get_object_or_404(
+            DynamicForm, 
+            league_id=self.kwargs['league_id'],
+            is_active=True
+        )
+        
+        # Create response object
+        response = FormResponse.objects.create(
+            form=dynamic_form,
+            user=self.request.user,
+            responses=form.cleaned_data
+        )
+        
+        # Continue with registration process
+        return redirect('registration_payment', league_id=self.kwargs['league_id'])
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['league'] = get_object_or_404(League, id=self.kwargs['league_id'])
+        return context

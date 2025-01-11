@@ -1,0 +1,171 @@
+{# templates/forms/form_create.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-3xl">
+    <h1 class="text-3xl font-bold mb-8">Create Registration Form</h1>
+    
+    <div class="bg-white shadow sm:rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+            <form method="post" class="space-y-6">
+                {% csrf_token %}
+                
+                {% for field in form %}
+                    <div>
+                        <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                            {{ field.label }}
+                        </label>
+                        <div class="mt-1">
+                            {{ field }}
+                        </div>
+                        {% if field.errors %}
+                            <p class="mt-2 text-sm text-red-600">{{ field.errors|join:", " }}</p>
+                        {% endif %}
+                        {% if field.help_text %}
+                            <p class="mt-2 text-sm text-gray-500">{{ field.help_text }}</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+
+                <div class="flex justify-end space-x-4">
+                    <a href="{% url 'form_management' %}" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+                        Cancel
+                    </a>
+                    <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                        Create Form
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{# templates/forms/form_edit.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold">Edit Registration Form</h1>
+        <div class="flex space-x-4">
+            <a href="{% url 'form_management' %}" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+                Back to Forms
+            </a>
+        </div>
+    </div>
+
+    <div class="bg-white shadow sm:rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+            <form method="post" class="space-y-8">
+                {% csrf_token %}
+                
+                <!-- Form Details -->
+                <div class="space-y-6">
+                    <h2 class="text-xl font-semibold">Form Details</h2>
+                    {% for field in form %}
+                        <div>
+                            <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                                {{ field.label }}
+                            </label>
+                            <div class="mt-1">
+                                {{ field }}
+                            </div>
+                            {% if field.errors %}
+                                <p class="mt-2 text-sm text-red-600">{{ field.errors|join:", " }}</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Form Fields -->
+                <div class="space-y-6">
+                    <h2 class="text-xl font-semibold">Form Fields</h2>
+                    {{ formfield_formset.management_form }}
+                    <div id="form-fields" class="space-y-4">
+                        {% for formfield_form in formfield_formset %}
+                            <div class="border rounded-md p-4 bg-gray-50 relative form-field">
+                                <div class="absolute right-2 top-2">
+                                    <button type="button" class="text-red-600 hover:text-red-800 delete-field">
+                                        Delete
+                                    </button>
+                                </div>
+                                {{ formfield_form.id }}
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {% for field in formfield_form %}
+                                        {% if field.name != 'id' and field.name != 'DELETE' %}
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700">
+                                                    {{ field.label }}
+                                                </label>
+                                                <div class="mt-1">
+                                                    {{ field }}
+                                                </div>
+                                                {% if field.errors %}
+                                                    <p class="mt-2 text-sm text-red-600">{{ field.errors|join:", " }}</p>
+                                                {% endif %}
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                                <div class="hidden">{{ formfield_form.DELETE }}</div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <button type="button" id="add-field" class="mt-4 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+                        Add Field
+                    </button>
+                </div>
+
+                <div class="flex justify-end space-x-4">
+                    <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% block extra_scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const formFields = document.getElementById('form-fields');
+        const addFieldBtn = document.getElementById('add-field');
+        const totalFormsInput = document.getElementById('id_form-TOTAL_FORMS');
+
+        // Handle adding new fields
+        addFieldBtn.addEventListener('click', function() {
+            const forms = formFields.getElementsByClassName('form-field');
+            const formCount = forms.length;
+            const newForm = forms[0].cloneNode(true);
+            
+            // Update form index
+            newForm.innerHTML = newForm.innerHTML.replace(/-\d+-/g, `-${formCount}-`);
+            
+            // Clear input values
+            newForm.querySelectorAll('input, select, textarea').forEach(input => {
+                if (input.type !== 'hidden') {
+                    input.value = '';
+                }
+            });
+            
+            formFields.appendChild(newForm);
+            totalFormsInput.value = formCount + 1;
+        });
+
+        // Handle deleting fields
+        formFields.addEventListener('click', function(e) {
+            if (e.target.classList.contains('delete-field')) {
+                const fieldContainer = e.target.closest('.form-field');
+                const deleteInput = fieldContainer.querySelector('input[name$="-DELETE"]');
+                if (deleteInput) {
+                    deleteInput.checked = true;
+                    fieldContainer.style.display = 'none';
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}
+</div>

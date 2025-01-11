@@ -4,6 +4,7 @@ from . import views
 app_name = "sportsSignUp"
 
 urlpatterns = [
+     path('leagues/<int:league_id>/register/', views.RegistrationFormView.as_view(), name='league_registration'),
      # Home and Authentication
      path("", views.index, name="index"),
      path("login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
@@ -53,4 +54,9 @@ urlpatterns = [
      path("league/<int:league_id>/free-agents/", views.FreeAgentPoolView.as_view(), name="free_agent_pool"),
      path("free-agent/<int:agent_id>/details/", views.FreeAgentDetailView.as_view(), name="free_agent_details"),
      path("free-agent/register/<int:league_id>/", views.FreeAgentRegistrationView.as_view(), name="free_agent_registration"),
-]
+     
+     # Form Management
+    path('forms/manage/', views.DynamicFormManagementView.as_view(), name='form_management'),
+    path('forms/create/<int:league_id>/', views.DynamicFormCreateView.as_view(), name='form_create'),
+    path('forms/edit/<int:pk>/', views.DynamicFormEditView.as_view(), name='form_edit'),
+     ]

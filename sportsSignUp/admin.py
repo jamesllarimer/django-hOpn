@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Sport, Team, Player, Division , CustomUser, League, StripeProduct, StripePrice, TeamCaptain, Registration
+from .models import Sport, Team, Player, Division , CustomUser, League, StripeProduct, StripePrice, TeamCaptain, Registration, DynamicForm, FormField, FormResponse
 from django.urls import path
 from django.shortcuts import redirect
 from django.contrib import messages
@@ -99,3 +99,49 @@ class StripePriceAdmin(admin.ModelAdmin):
                       'metadata', 'created_at', 'updated_at')
     list_filter = ('active', 'recurring', 'recurring_interval')
     search_fields = ('stripe_id', 'product__name')
+
+class FormFieldInline(admin.TabularInline):
+    model = FormField
+    extra = 0
+    ordering = ['order']
+
+@admin.register(DynamicForm)
+class DynamicFormAdmin(admin.ModelAdmin):
+    list_display = ('title', 'league', 'is_active', 'created_at')
+    list_filter = ('is_active', 'league')
+    search_fields = ('title', 'league__name')
+    inlines = [FormFieldInline]
+
+@admin.register(FormResponse)
+class FormResponseAdmin(admin.ModelAdmin):
+    list_display = ('get_user_name', 'get_league_name', 'created_at')
+    list_filter = ('form__league', 'created_at')
+    search_fields = ('user__email', 'user__username', 'form__league__name')
+    readonly_fields = ('form', 'user', 'registration', 'responses', 'created_at')
+
+    def get_user_name(self, obj):
+        return f"{obj.user.get_full_name()} ({obj.user.email})"
+    get_user_name.short_description = 'User'
+
+    def get_league_name(self, obj):
+        return obj.form.league.name
+    get_league_name.short_description = 'League'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def response_details(self, obj):
+        """Custom method to display response details in a readable format"""
+        html = ['<table style="width:100%">']
+        for field in obj.form.fields.all():
+            value = obj.responses.get(f'field_{field.id}', 'No response')
+            html.append(f'<tr><th style="text-align:left;padding:8px;background:#f5f5f5;">{field.label}</th>')
+            html.append(f'<td style="padding:8px;">{value}</td></tr>')
+        html.append('</table>')
+        return ''.join(html)
+    response_details.allow_tags = True
+
+    readonly_fields = ('response_details',)

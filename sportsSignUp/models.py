@@ -1,3 +1,4 @@
+import json
 import random
 import string
 from django.db.models import Q
@@ -123,6 +124,9 @@ class League(models.Model):
     available_divisions = models.ManyToManyField(Division, 
                                                related_name='league_sessions', 
                                                limit_choices_to={'sport': models.F('sport')})
+    @property
+    def has_registration_form(self):
+        return hasattr(self, 'registration_form') and self.registration_form.is_active
     
     # Stripe integration
     stripe_product = models.ForeignKey(
@@ -392,3 +396,70 @@ class TeamInvitationNotification(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+
+class DynamicForm(models.Model):
+    """Model to store form configurations for league registrations"""
+    league = models.OneToOneField('League', on_delete=models.CASCADE, related_name='registration_form')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"Registration Form - {self.league.name}"
+
+class FormField(models.Model):
+    """Model to store individual form fields"""
+    FIELD_TYPES = [
+        ('text', 'Text Input'),
+        ('textarea', 'Text Area'),
+        ('number', 'Number Input'),
+        ('email', 'Email Input'),
+        ('date', 'Date Input'),
+        ('checkbox', 'Checkbox'),
+        ('select', 'Select Dropdown'),
+        ('radio', 'Radio Buttons'),
+        ('file', 'File Upload'),
+    ]
+
+    form = models.ForeignKey(DynamicForm, on_delete=models.CASCADE, related_name='fields')
+    label = models.CharField(max_length=200)
+    field_type = models.CharField(max_length=20, choices=FIELD_TYPES)
+    required = models.BooleanField(default=False)
+    placeholder = models.CharField(max_length=200, blank=True)
+    help_text = models.TextField(blank=True)
+    options = models.JSONField(null=True, blank=True, 
+        help_text="For select/radio fields, provide options as JSON array")
+    validation_rules = models.JSONField(null=True, blank=True,
+        help_text="JSON object with validation rules")
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+
+    def clean(self):
+        if self.field_type in ['select', 'radio'] and not self.options:
+            raise ValidationError('Options are required for select and radio fields')
+        
+        if self.options:
+            try:
+                if not isinstance(json.loads(self.options), list):
+                    raise ValidationError('Options must be a JSON array')
+            except json.JSONDecodeError:
+                raise ValidationError('Invalid JSON format for options')
+
+    def __str__(self):
+        return f"{self.label} ({self.get_field_type_display()})"
+
+class FormResponse(models.Model):
+    """Model to store user responses to dynamic forms"""
+    form = models.ForeignKey(DynamicForm, on_delete=models.CASCADE, related_name='responses')
+    user = models.ForeignKey('CustomUser', on_delete=models.CASCADE, related_name='form_responses')
+    registration = models.OneToOneField('Registration', on_delete=models.CASCADE, related_name='form_response')
+    responses = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Response for {self.form} by {self.user}"
