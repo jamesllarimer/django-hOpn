@@ -1,0 +1,32 @@
+{# templates/leagues/free_agent_registration_success.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto max-w-2xl px-4 py-8">
+    <div class="text-center">
+        <h1 class="text-3xl font-bold mb-6">Registration Successful!</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <p class="text-gray-600 mb-4">
+                You have been successfully added to the free agent pool. Team captains can now view your profile and send you invitations to join their team.
+            </p>
+            
+            <p class="text-gray-600 mb-6">
+                When you receive an invitation, you'll be notified by email and can choose to accept or decline it.
+            </p>
+        </div>
+
+        <div class="space-y-4">
+            <a href="{% url 'sportsSignUp:free_agent_pool' league.id %}" 
+               class="block w-full px-6 py-3 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                View Free Agent Pool
+            </a>
+            
+            <a href="{% url 'sportsSignUp:index' %}" 
+               class="block w-full px-6 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600">
+                Return Home
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{# templates/leagues/free_agent_registration.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto max-w-2xl px-4 py-8">
+    <h1 class="text-3xl font-bold mb-6">Free Agent Registration</h1>
+    
+    <div class="mb-6">
+        <p class="text-gray-600">
+            Register as a free agent to join the player pool. Teams can invite you to join, 
+            and you'll only need to pay once you accept a team invitation.
+        </p>
+    </div>
+    
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+        {% for field in form %}
+            <div class="form-group">
+                <label class="block text-sm font-medium text-gray-700">{{ field.label }}</label>
+                <div class="mt-1">
+                    {{ field }}
+                </div>
+                {% if field.help_text %}
+                    <p class="mt-1 text-sm text-gray-500">{{ field.help_text }}</p>
+                {% endif %}
+                {% if field.errors %}
+                    <div class="text-red-500 text-sm mt-1">
+                        {% for error in field.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        
+        <div class="mt-8">
+            <button type="submit" 
+                    class="w-full bg-blue-500 text-white px-6 py-3 rounded-md hover:bg-blue-600">
+                Register as Free Agent
+            </button>
+        </div>    
+    </form>
+</div>
+{% endblock %}

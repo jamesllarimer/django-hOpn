@@ -1,0 +1,78 @@
+{# templates/registration/profile_management.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-2xl mx-auto">
+        <!-- Profile Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold mb-2">Manage Profile</h1>
+            <p class="text-gray-600">Update your personal information below</p>
+        </div>
+
+        <!-- Messages -->
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-4 p-4 rounded-md {% if message.tags == 'success' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Profile Form -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <form method="post">
+                {% csrf_token %}
+                
+                {% for field in form %}
+                    <div class="mb-6">
+                        <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ field.label }}
+                        </label>
+                        <div>
+                            {{ field }}
+                            {% if field.errors %}
+                                <div class="mt-1 text-red-600 text-sm">
+                                    {{ field.errors|join:", " }}
+                                </div>
+                            {% endif %}
+                            {% if field.help_text %}
+                                <div class="mt-1 text-sm text-gray-500">
+                                    {{ field.help_text }}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+
+                <!-- Form Actions -->
+                <div class="flex justify-end space-x-4 mt-8">
+                    <a href="{% url 'sportsSignUp:index' %}" 
+                       class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+                        Cancel
+                    </a>
+                    <button type="submit" 
+                            class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Additional Account Options -->
+        <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">Account Settings</h2>
+            <div class="space-y-4">
+                <a href="#" class="block text-blue-600 hover:text-blue-700">
+                    Change Password
+                </a>
+                {% if not user.is_member %}
+                    <a href="#" class="block text-blue-600 hover:text-blue-700">
+                        Become a Member
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

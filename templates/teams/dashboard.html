@@ -1,0 +1,80 @@
+{# templates/teams/dashboard.html #}
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold">My Teams</h1>
+    </div>
+
+    {% if teams_as_captain %}
+        <div class="mb-12">
+            <h2 class="text-2xl font-semibold mb-4">Teams I Captain</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for team in teams_as_captain %}
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="text-xl font-semibold">{{ team.name }}</h3>
+                                <p class="text-gray-600">{{ team.league.name }}</p>
+                                <p class="text-sm text-gray-500">Division: {{ team.division.name }}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 space-y-2">
+                            <a href="{% url 'sportsSignUp:team_detail' team.id %}" 
+                               class="block w-full text-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                                Manage Team
+                            </a>
+                            <a href="{% url 'sportsSignUp:free_agent_pool' team.league.id %}"
+                               class="block w-full text-center px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">
+                                View Free Agents
+                            </a>
+                            <a href="{% url 'sportsSignUp:sent_invitations' %}" class="block w-full text-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600">
+                                View Sent Invitations
+                            </a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if potential_captain_teams %}
+        <div class="mb-12">
+            <h2 class="text-2xl font-semibold mb-4">Teams to Claim</h2>
+            <p class="text-gray-600 mb-4">These teams list you as captain but need to be claimed.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for team in potential_captain_teams %}
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="text-xl font-semibold">{{ team.name }}</h3>
+                                <p class="text-gray-600">{{ team.league.name }}</p>
+                                <p class="text-sm text-gray-500">Division: {{ team.division.name }}</p>
+                            </div>
+                        </div>
+                        
+                        <form method="post" action="{% url 'sportsSignUp:claim_team_captain' team.id %}">
+                            {% csrf_token %}
+                            <button type="submit" 
+                                    class="w-full px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                                Claim Team
+                            </button>
+                        </form>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if not teams_as_captain and not potential_captain_teams %}
+        <div class="text-center py-12">
+            <h3 class="text-lg font-medium text-gray-900">No Teams Found</h3>
+            <p class="mt-2 text-sm text-gray-600">
+                You are not currently a captain of any teams.
+            </p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

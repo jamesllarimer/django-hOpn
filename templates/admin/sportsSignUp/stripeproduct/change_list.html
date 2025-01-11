@@ -1,0 +1,12 @@
+{# In sportsSignUp/templates/admin/sportsSignUp/stripeproduct/change_list.html #}
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools-items %}
+    <li>
+        <a href="{% url 'admin:sportsSignUp_stripeproduct_sync' %}" class="button">
+            Sync Stripe Products
+        </a>
+    </li>
+    {{ block.super }}
+{% endblock %}

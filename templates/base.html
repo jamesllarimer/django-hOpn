@@ -1,0 +1,183 @@
+{% load team_tags  %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sports Leagues{% endblock %}</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Add this in your base.html template's head section -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <header class="bg-blue-600 text-white">
+        <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center">
+                <a href="{% url 'sportsSignUp:index' %}" class="text-2xl font-bold hover:text-blue-200 transition duration-300">
+                    Sports Leagues
+                </a>
+            </div>
+            
+            <div class="hidden md:flex space-x-4 items-center">
+                <a href="{% url 'sportsSignUp:index' %}" class="hover:text-blue-200 transition duration-300">
+                    Home
+                </a>
+                <a href="{% url 'sportsSignUp:league_list' %}" class="hover:text-blue-200 transition duration-300">
+                    Active Leagues
+                </a>
+                {% if user.is_authenticated %}
+                    {% if user.team_captains.exists or user.email|teamcaptain_email_exists %}
+                        <a href="{% url 'sportsSignUp:team_dashboard' %}" class="hover:text-blue-200 transition duration-300">
+                            Team Dashboard
+                        </a>
+                    {% endif %}
+                {% endif %}
+
+                {% if user.is_authenticated %}
+                    <a href="{% url 'sportsSignUp:my_free_agent_registrations' %}" class="hover:text-blue-200 transition duration-300">
+                        My Free Agent Status
+                    </a>
+                {% endif %}
+
+                {% if user.is_authenticated %}
+                    <!-- Profile Dropdown -->
+                    <div class="relative" x-data="{ open: false }">
+                        <button @click="open = !open" 
+                                @click.away="open = false"
+                                class="flex items-center space-x-2 text-blue-200 px-3 py-1 rounded-full bg-blue-700 hover:bg-blue-800 transition duration-300">
+                            <span>
+                                {% if user.get_full_name %}
+                                    {{ user.get_full_name }}
+                                {% else %}
+                                    {{ user.username }}
+                                {% endif %}
+                            </span>
+                            <svg :class="{'rotate-180': open}" class="w-4 h-4 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        
+                        <!-- Dropdown Menu -->
+                        <div x-show="open"
+                             x-transition:enter="transition ease-out duration-100"
+                             x-transition:enter-start="transform opacity-0 scale-95"
+                             x-transition:enter-end="transform opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-75"
+                             x-transition:leave-start="transform opacity-100 scale-100"
+                             x-transition:leave-end="transform opacity-0 scale-95"
+                             class="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                            <div class="py-1">
+                                <a href="{% url 'sportsSignUp:profile_management' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                    Manage Profile
+                                </a>
+                                <form method="post" action="{% url 'sportsSignUp:logout' %}" class="block w-full">
+                                    {% csrf_token %}
+                                    <button type="submit" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                        Sign Out
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <a href="{% url 'login' %}" class="hover:text-blue-200 transition duration-300">
+                        Login
+                    </a>
+                    <a href="{% url 'sportsSignUp:signup' %}" class="hover:text-blue-200 transition duration-300">
+                        Sign Up
+                    </a>
+                {% endif %}
+            </div>
+            
+            <!-- Mobile Menu Button -->
+            <div class="md:hidden">
+                <button id="mobile-menu-toggle" class="mobile-menu-button focus:outline-none">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
+        </nav>
+        
+        <!-- Mobile Menu -->
+        <div id="mobile-menu" class="md:hidden hidden bg-blue-500">
+            <div class="px-4 pt-2 pb-4 space-y-2">
+                <a href="{% url 'sportsSignUp:index' %}" class="block py-2 hover:bg-blue-600 rounded">
+                    Home
+                </a>
+                <a href="{% url 'sportsSignUp:league_list' %}" class="block py-2 hover:bg-blue-600 rounded">
+                    Active Leagues
+                </a>
+                {% if user.is_authenticated and user.is_admin %}
+                    <a href="{% url 'sportsSignUp:registration_management' %}" class="block py-2 hover:bg-blue-600 rounded">
+                        Manage Registrations
+                    </a>
+                {% endif %}
+                {% if user.is_authenticated %}
+                    <a href="{% url 'sportsSignUp:my_free_agent_registrations' %}" class="block py-2 hover:bg-blue-600 rounded">
+                        My Free Agent Status
+                    </a>
+                    <!-- Mobile Profile Section -->
+                    <div class="border-t border-blue-400 mt-2 pt-2">
+                        <div class="px-4 py-2 text-center bg-blue-600 rounded mb-2">
+                            {% if user.get_full_name %}
+                                {{ user.get_full_name }}
+                            {% else %}
+                                {{ user.username }}
+                            {% endif %}
+                        </div>
+                        <a href="#" class="block py-2 hover:bg-blue-600 rounded">
+                            Manage Profile
+                        </a>
+                        <form method="post" action="{% url 'sportsSignUp:logout' %}" class="block">
+                            {% csrf_token %}
+                            <button type="submit" class="block w-full text-left py-2 hover:bg-blue-600 rounded">
+                                Sign Out
+                            </button>
+                        </form>
+                    </div>
+                {% else %}
+                    <a href="{% url 'login' %}" class="block py-2 hover:bg-blue-600 rounded">
+                        Login
+                    </a>
+                    <a href="{% url 'sportsSignUp:signup' %}" class="block py-2 hover:bg-blue-600 rounded">
+                        Sign Up
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-blue-800 text-white py-4 mt-8">
+        <div class="container mx-auto px-4 text-center">
+            <p>&copy; {{ current_year }} Sports Leagues. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- Mobile Menu Toggle Script -->
+    <script>
+        const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+        const mobileMenu = document.getElementById('mobile-menu');
+
+        mobileMenuToggle.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
